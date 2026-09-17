@@ -1,0 +1,465 @@
+{
+  "group": { "key": "zj-bmw-group", "name": "浙沪宝马经销商集团" },
+  "dealers": [
+    {
+      "key": "hz-bmw",
+      "name": "杭州宝马中心",
+      "brands": ["BMW"],
+      "city": "杭州",
+      "province": "浙江",
+      "address": "浙江省杭州市西湖区文三西路888号（演示地址）",
+      "business_hours": "周一至周日 08:30-18:30",
+      "phone": "0571-86660000",
+      "settings": {}
+    },
+    {
+      "key": "sh-bmw",
+      "name": "上海宝马中心",
+      "brands": ["BMW"],
+      "city": "上海",
+      "province": "上海",
+      "address": "上海市闵行区虹梅路1000号（演示地址）",
+      "business_hours": "周一至周日 09:00-18:00",
+      "phone": "021-54440000",
+      "settings": { "daily_outreach_limit": 15 }
+    }
+  ],
+  "vehicles": [
+    {
+      "key": "i3-edrive35l",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "i3",
+      "model_zh": "i3",
+      "trim": "eDrive35L",
+      "model_year": 2026,
+      "msrp": 353900,
+      "specs": { "powertrain": "EV", "body_type": "中型纯电轿车", "range_km": 526, "horsepower": 286, "seats": 5, "length_mm": 4872, "wheelbase_mm": 2966, "battery_kwh": 70.3 },
+      "highlights": ["CLTC综合工况续航526km", "第五代BMW eDrive电驱系统，后驱操控", "BMW曲面显示屏与iDrive智能交互系统", "长轴距设计，后排腿部空间宽裕"],
+      "aliases": ["35L", "i3 35L", "eDrive35L"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "i3-edrive40l",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "i3",
+      "model_zh": "i3",
+      "trim": "eDrive40L",
+      "model_year": 2026,
+      "msrp": 403900,
+      "specs": { "powertrain": "EV", "body_type": "中型纯电轿车", "range_km": 592, "horsepower": 340, "seats": 5, "length_mm": 4872, "wheelbase_mm": 2966, "battery_kwh": 78.9 },
+      "highlights": ["CLTC续航592km，长途通勤更从容", "更高功率电机，加速更有劲", "高配座椅与哈曼卡顿音响", "支持直流快充"],
+      "aliases": ["40L", "i3 40L", "eDrive40L"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "i4-edrive35",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "i4",
+      "model_zh": "i4",
+      "trim": "eDrive35",
+      "model_year": 2026,
+      "msrp": 399900,
+      "specs": { "powertrain": "EV", "body_type": "纯电四门轿跑", "range_km": 526, "horsepower": 286, "seats": 5, "length_mm": 4785, "wheelbase_mm": 2856, "battery_kwh": 70.3 },
+      "highlights": ["溜背四门轿跑造型", "低重心带来稳定的弯道表现", "掀背式后备厢，装载灵活", "纯电平台安静平顺"],
+      "aliases": ["i4 35", "eDrive35"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "x1-sdrive20li",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "X1",
+      "model_zh": "X1",
+      "trim": "sDrive20Li",
+      "model_year": 2026,
+      "msrp": 289900,
+      "specs": { "powertrain": "ICE", "body_type": "紧凑型SUV", "horsepower": 204, "seats": 5, "length_mm": 4616, "wheelbase_mm": 2802, "fuel_l_per_100km": 6.6 },
+      "highlights": ["国产长轴距版本，后排空间出众", "2.0T发动机，动力平顺", "悬浮式中控大屏", "城市家庭入门SUV之选"],
+      "aliases": ["20Li", "X1 20Li", "sDrive20Li"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "x3-xdrive25l",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "X3",
+      "model_zh": "X3",
+      "trim": "xDrive25L",
+      "model_year": 2026,
+      "msrp": 389900,
+      "specs": { "powertrain": "ICE", "body_type": "中型SUV", "horsepower": 208, "seats": 5, "length_mm": 4865, "wheelbase_mm": 2975, "fuel_l_per_100km": 7.4 },
+      "highlights": ["全新一代长轴距X3，后排空间大幅提升", "xDrive智能全轮驱动", "2.0T发动机匹配8速手自一体变速箱", "家庭出行兼顾舒适与操控"],
+      "aliases": ["25L", "X3 25L", "xDrive25L"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "x3-xdrive30l",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "X3",
+      "model_zh": "X3",
+      "trim": "xDrive30L",
+      "model_year": 2026,
+      "msrp": 459900,
+      "specs": { "powertrain": "ICE", "body_type": "中型SUV", "horsepower": 258, "seats": 5, "length_mm": 4865, "wheelbase_mm": 2975, "fuel_l_per_100km": 7.6 },
+      "highlights": ["高功率2.0T发动机", "M运动套装外观", "xDrive智能全轮驱动", "丰富的驾驶辅助配置"],
+      "aliases": ["30L", "X3 30L", "xDrive30L"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "3series-325li",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "3 Series",
+      "model_zh": "3系",
+      "trim": "325Li",
+      "model_year": 2026,
+      "msrp": 349900,
+      "specs": { "powertrain": "ICE", "body_type": "中型轿车", "horsepower": 184, "seats": 5, "length_mm": 4838, "wheelbase_mm": 2961, "fuel_l_per_100km": 6.2 },
+      "highlights": ["经典后驱运动轿车", "长轴距版本后排更舒适", "2.0T发动机，操控灵活", "年轻人入门宝马的热门选择"],
+      "aliases": ["325Li", "3系325Li"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "3series-330li",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "3 Series",
+      "model_zh": "3系",
+      "trim": "330Li",
+      "model_year": 2026,
+      "msrp": 399900,
+      "specs": { "powertrain": "ICE", "body_type": "中型轿车", "horsepower": 258, "seats": 5, "length_mm": 4838, "wheelbase_mm": 2961, "fuel_l_per_100km": 6.5 },
+      "highlights": ["高功率2.0T发动机", "M运动套装", "自适应悬架带来更好的路感", "运动与舒适兼顾"],
+      "aliases": ["330Li", "3系330Li"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "5series-530li",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "5 Series",
+      "model_zh": "5系",
+      "trim": "530Li",
+      "model_year": 2026,
+      "msrp": 529900,
+      "specs": { "powertrain": "ICE", "body_type": "中大型轿车", "horsepower": 258, "seats": 5, "length_mm": 5175, "wheelbase_mm": 3105, "fuel_l_per_100km": 7.1 },
+      "highlights": ["行政级长轴距，后排商务舒适", "2.0T发动机平顺安静", "丰富的舒适与豪华配置", "适合商务接待与家庭出行"],
+      "aliases": ["530Li", "5系530Li"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "ix3-leading",
+      "brand": "BMW",
+      "brand_zh": "宝马",
+      "model": "iX3",
+      "model_zh": "iX3",
+      "trim": "领先型",
+      "model_year": 2026,
+      "msrp": 399900,
+      "specs": { "powertrain": "EV", "body_type": "中型纯电SUV", "range_km": 550, "horsepower": 286, "seats": 5, "length_mm": 4746, "wheelbase_mm": 2864, "battery_kwh": 80 },
+      "highlights": ["纯电中型SUV", "CLTC续航550km", "后驱电驱系统，能耗表现出色", "大空间适合家庭纯电出行"],
+      "aliases": ["iX3领先型"],
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    }
+  ],
+  "inventory": [
+    { "dealer": "hz-bmw", "vehicle": "i3-edrive35l", "vin": "LBV00000000000001", "exterior_color": "白", "interior_color": "红", "status": "in_stock", "quantity": 1, "list_price": 353900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "hz-bmw", "vehicle": "i3-edrive35l", "vin": null, "exterior_color": "黑", "interior_color": "黑", "status": "in_stock", "quantity": 2, "list_price": 353900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "hz-bmw", "vehicle": "i3-edrive40l", "vin": "LBV00000000000003", "exterior_color": "灰", "interior_color": "黑", "status": "in_transit", "quantity": 1, "list_price": 403900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "hz-bmw", "vehicle": "x3-xdrive25l", "vin": null, "exterior_color": "白", "interior_color": "棕", "status": "in_stock", "quantity": 2, "list_price": 389900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "hz-bmw", "vehicle": "x3-xdrive30l", "vin": "LBV00000000000005", "exterior_color": "黑", "interior_color": "黑", "status": "in_stock", "quantity": 1, "list_price": 459900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "hz-bmw", "vehicle": "3series-325li", "vin": "LBV00000000000006", "exterior_color": "蓝", "interior_color": "黑", "status": "in_stock", "quantity": 1, "list_price": 349900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "sh-bmw", "vehicle": "x3-xdrive25l", "vin": null, "exterior_color": "黑", "interior_color": "黑", "status": "in_stock", "quantity": 2, "list_price": 389900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "sh-bmw", "vehicle": "5series-530li", "vin": "LBV00000000000102", "exterior_color": "白", "interior_color": "棕", "status": "in_stock", "quantity": 1, "list_price": 529900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" },
+    { "dealer": "sh-bmw", "vehicle": "i3-edrive35l", "vin": "LBV00000000000103", "exterior_color": "白", "interior_color": "黑", "status": "in_stock", "quantity": 1, "list_price": 353900, "source": "dms_stock_export_2026-09-12 (fictional demo data)" }
+  ],
+  "offers": [
+    {
+      "key": "hz-i3-golden-september", "dealer": "hz-bmw", "vehicle": null, "model": "i3", "type": "cash_discount",
+      "title": "i3金九限时优惠", "description": "9月购买宝马i3享受现金优惠", "amount": 90000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "需在活动期内签订购车合同，不与其他现金类优惠同享", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-i3-finance-0apr", "dealer": "hz-bmw", "vehicle": null, "model": "i3", "type": "finance",
+      "title": "i3 36期0息", "description": "宝马i3贷款购车享36期0息金融方案", "amount": null, "apr": 0, "term_months": 36, "down_payment_pct": 0.3,
+      "conditions": "需通过合作金融机构审批，最终方案以审批结果为准", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-x3-cash", "dealer": "hz-bmw", "vehicle": null, "model": "X3", "type": "cash_discount",
+      "title": "X3现金优惠", "description": "9月购买宝马X3享受现金优惠", "amount": 60000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "需在活动期内签订购车合同，以门店书面报价为准", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-325li-cash", "dealer": "hz-bmw", "vehicle": "3series-325li", "model": null, "type": "cash_discount",
+      "title": "3系325Li限时优惠", "description": "宝马3系325Li指定车辆限时现金优惠", "amount": 70000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "限指定车架号车辆，数量有限", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-trade-in", "dealer": "hz-bmw", "vehicle": null, "model": null, "type": "trade_in",
+      "title": "置换补贴", "description": "置换购买宝马任意新车可享置换补贴", "amount": 8000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "需置换本人名下车辆，旧车评估以门店检测为准", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-x3-lease", "dealer": "hz-bmw", "vehicle": null, "model": "X3", "type": "lease",
+      "title": "X3以租代购", "description": "宝马X3以租代购方案，月付压力更低", "amount": 5999, "apr": null, "term_months": 36, "down_payment_pct": 0.2,
+      "conditions": "需通过合作租赁公司审批，期满可选择留购或置换", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    },
+    {
+      "key": "hz-i3-august-clearance", "dealer": "hz-bmw", "vehicle": null, "model": "i3", "type": "cash_discount",
+      "title": "i3八月清库优惠", "description": "8月宝马i3清库现金优惠", "amount": 120000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "仅限8月签约", "valid_from": "2026-08-01", "valid_until": "2026-08-31",
+      "source": "sample_price_sheet_2026-08 (fictional demo data)"
+    },
+    {
+      "key": "sh-x3-cash", "dealer": "sh-bmw", "vehicle": null, "model": "X3", "type": "cash_discount",
+      "title": "X3现金优惠", "description": "9月购买宝马X3享受现金优惠", "amount": 55000, "apr": null, "term_months": null, "down_payment_pct": null,
+      "conditions": "需在活动期内签订购车合同", "valid_from": "2026-09-01", "valid_until": "2026-09-30",
+      "source": "sample_price_sheet_2026-09 (fictional demo data)"
+    }
+  ],
+  "knowledge": [
+    {
+      "dealer": null, "category": "brand", "key": "brand:bmw", "title": "宝马品牌沟通要点",
+      "content": "宝马（BMW）坚持“纯粹驾驶乐趣”的品牌主张；内容中突出操控、品质与科技配置，车型名称使用官方写法（如BMW i3 eDrive35L、宝马3系325Li）。",
+      "data": { "brand": "BMW", "brand_zh": "宝马", "claim_style": "客观、克制、不夸大" },
+      "source": "group_brand_guideline_2026 (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "communication_guideline", "key": "guideline:price-basis", "title": "价格以到店/书面报价为准",
+      "content": "所有价格、优惠、金融方案仅引用门店当期书面政策，并提示以到店书面报价为准；不得自行测算或承诺落地价。",
+      "data": {}, "source": "group_brand_guideline_2026 (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "communication_guideline", "key": "guideline:no-lowest-price", "title": "不承诺最低价",
+      "content": "不得使用任何比价式或绝对化的低价承诺，也不与其他门店做价格比较。",
+      "data": {}, "source": "group_brand_guideline_2026 (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "communication_guideline", "key": "guideline:no-competitor-disparagement", "title": "不贬低竞品",
+      "content": "对比竞品时只陈述客观参数差异，不使用贬损性语言，不评价其他品牌车主。",
+      "data": {}, "source": "group_brand_guideline_2026 (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:lowest-online", "title": "禁用：全网最低", "content": "无法证实的绝对化价格承诺，违反广告法与平台规则", "data": { "phrase": "全网最低" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:lowest-price", "title": "禁用：最低价", "content": "价格需以书面报价为准，不得承诺最低价", "data": { "phrase": "最低价" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:absolute", "title": "禁用：绝对", "content": "绝对化用语违反广告法", "data": { "phrase": "绝对" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:guarantee", "title": "禁用：保证", "content": "不得对价格、审批或交付作出保证性承诺", "data": { "phrase": "保证" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:internal-price", "title": "禁用：内部价", "content": "暗示存在非公开价格，易引发纠纷", "data": { "phrase": "内部价" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:zero-down-no-threshold", "title": "禁用：零首付无门槛", "content": "金融方案均需审批，不得宣传无门槛", "data": { "phrase": "零首付无门槛" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    { "dealer": null, "category": "prohibited_claim", "key": "prohibited:loan-guaranteed", "title": "禁用：包过贷款", "content": "贷款需金融机构审批，不得承诺必过", "data": { "phrase": "包过贷款" }, "source": "group_compliance_2026 (fictional demo data)", "valid_from": null, "valid_until": null },
+    {
+      "dealer": "hz-bmw", "category": "store", "key": "store:main", "title": "杭州宝马中心门店信息",
+      "content": "门店位于浙江省杭州市西湖区文三西路888号（演示地址），周一至周日 08:30-18:30营业，提供免费停车位与新能源充电桩。",
+      "data": { "address": "浙江省杭州市西湖区文三西路888号（演示地址）", "business_hours": "周一至周日 08:30-18:30", "parking": true, "ev_charging": true },
+      "source": "dealer_store_profile (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": "sh-bmw", "category": "store", "key": "store:main", "title": "上海宝马中心门店信息",
+      "content": "门店位于上海市闵行区虹梅路1000号（演示地址），周一至周日 09:00-18:00营业，支持预约专属顾问接待。",
+      "data": { "address": "上海市闵行区虹梅路1000号（演示地址）", "business_hours": "周一至周日 09:00-18:00", "parking": true },
+      "source": "dealer_store_profile (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": "hz-bmw", "category": "salesperson", "key": "salesperson:wang-lei", "title": "王磊",
+      "content": "杭州宝马中心销售顾问，主攻宝马i3与3系，运营小红书账号“销售小王·杭州宝马”。",
+      "data": { "name": "王磊", "models": ["i3", "3 Series"], "platform_account_id": "xhs-hz-sales-wang" },
+      "source": "dealer_staff_roster (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": "hz-bmw", "category": "salesperson", "key": "salesperson:li-na", "title": "李娜",
+      "content": "杭州宝马中心资深销售顾问，主攻宝马X3与X1，运营小红书账号“李姐聊宝马”。",
+      "data": { "name": "李娜", "models": ["X3", "X1"], "platform_account_id": "xhs-hz-sales-li" },
+      "source": "dealer_staff_roster (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": "sh-bmw", "category": "salesperson", "key": "salesperson:zhao-qiang", "title": "赵强",
+      "content": "上海宝马中心销售顾问，主攻宝马X3与5系，运营小红书账号“赵哥说车·上海宝马”。",
+      "data": { "name": "赵强", "models": ["X3", "5 Series"], "platform_account_id": "xhs-sh-sales-zhao" },
+      "source": "dealer_staff_roster (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "campaign", "key": "campaign:golden-sept-silver-oct-test-drive", "title": "金九银十试驾季",
+      "content": "9月1日至10月31日期间到店试驾宝马任意车型，可参与门店试驾礼活动（礼品以门店实际为准）。",
+      "data": { "name": "金九银十试驾季", "channels": ["到店试驾"] },
+      "source": "group_campaign_calendar_2026 (fictional demo data)", "valid_from": "2026-09-01", "valid_until": "2026-10-31"
+    },
+    {
+      "dealer": null, "category": "faq", "key": "faq:maintenance", "title": "保养周期",
+      "content": "宝马车辆按车辆智能保养提示进行保养，常规保养间隔约为1万公里或12个月（以车辆提示为准），门店提供预约保养服务。",
+      "data": { "topic": "保养" }, "source": "group_service_faq (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "faq", "key": "faq:warranty", "title": "质保政策",
+      "content": "新车整车质保3年不限里程；纯电车型高压电池质保8年或16万公里，以购车合同及官方质保手册为准。",
+      "data": { "topic": "质保" }, "source": "group_service_faq (fictional demo data)", "valid_from": null, "valid_until": null
+    },
+    {
+      "dealer": null, "category": "policy", "key": "policy:test-drive-license", "title": "试驾需携带驾照",
+      "content": "试驾需本人携带有效的机动车驾驶证原件，并签署试驾协议；试驾路线由门店统一安排。",
+      "data": { "requires": ["驾驶证原件", "试驾协议"] }, "source": "group_store_policy (fictional demo data)", "valid_from": null, "valid_until": null
+    }
+  ],
+  "accounts": [
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-official", "nickname": "杭州宝马中心官方", "account_type": "official",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": null,
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "杭州宝马中心官方号",
+        "bio": "杭州宝马中心官方账号｜新车资讯·门店活动·到店服务",
+        "tone": "官方、稳重、信息准确",
+        "voice_rules": ["以“我们”自称，代表门店发声", "信息分条清晰，不使用网络梗", "价格与优惠只引用门店书面政策", "结尾引导通过留资卡预约到店"],
+        "target_customers": ["杭州及周边准备购买宝马的家庭用户", "关注门店活动的老车主", "首次了解宝马全系的新客户"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["i3", "X3", "3 Series", "X1", "5 Series", "i4", "iX3"],
+        "content_positioning": "门店官方信息发布：新车到店、限时政策、门店活动与服务保障",
+        "content_mix": { "dealer_event": 0.3, "price_offer": 0.25, "inventory_showcase": 0.2, "model_review": 0.15, "ownership_tips": 0.1 },
+        "goals": { "monthly_qualified_leads": 30, "monthly_posts": 20, "monthly_appointments": 12 },
+        "signature_phrases": ["杭州宝马中心为您服务", "欢迎到店品鉴"],
+        "taboo_topics": ["个人主观吐槽", "竞品负面对比", "未经确认的价格承诺"]
+      }
+    },
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-sales-wang", "nickname": "销售小王·杭州宝马", "account_type": "salesperson",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": "王磊",
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "销售小王",
+        "bio": "杭州宝马销售顾问王磊｜i3和3系选车不踩坑",
+        "tone": "亲切、接地气、像朋友聊天",
+        "voice_rules": ["第一人称“我”，口语化表达", "多讲真实客户提车的细节", "主动说明政策有效期", "不催单，给出中立的选车建议"],
+        "target_customers": ["预算30到40万的年轻上班族", "纠结i3和3系的首次购车用户", "关注电车用车成本的杭州通勤族"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["i3", "3 Series"],
+        "content_positioning": "一线销售视角讲i3与3系的选车、提车和用车真实经验",
+        "content_mix": { "buying_guide": 0.3, "customer_story": 0.2, "price_offer": 0.2, "comparison": 0.2, "inventory_showcase": 0.1 },
+        "goals": { "monthly_qualified_leads": 40, "monthly_posts": 12, "monthly_appointments": 15 },
+        "signature_phrases": ["我是小王，有问题评论区直接问", "买车不踩坑，小王帮你盘"],
+        "taboo_topics": ["贬低同事或其他门店", "承诺最低成交价", "私下返现"]
+      }
+    },
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-sales-li", "nickname": "李姐聊宝马", "account_type": "salesperson",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": "李娜",
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "李姐",
+        "bio": "杭州宝马资深销售李娜｜家用SUV选购、X1升级X3一站讲清",
+        "tone": "干练、专业、带点大姐姐的直爽",
+        "voice_rules": ["称呼粉丝为“姐妹/兄弟”", "用数据说话：尺寸、空间、配置", "重点讲家庭用车场景", "每篇给出一个明确的选购结论"],
+        "target_customers": ["二胎家庭", "需要大空间SUV的中年车主", "从X1升级X3的老车主"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["X3", "X1"],
+        "content_positioning": "家庭SUV选购专家：X3与X1的空间、配置对比与置换升级",
+        "content_mix": { "model_review": 0.3, "comparison": 0.25, "buying_guide": 0.2, "finance_explainer": 0.15, "ownership_tips": 0.1 },
+        "goals": { "monthly_qualified_leads": 35, "monthly_posts": 10, "monthly_appointments": 14 },
+        "signature_phrases": ["李姐说真话", "家用SUV，李姐帮你挑"],
+        "taboo_topics": ["夸大越野能力", "贬低竞品", "承诺贷款审批结果"]
+      }
+    },
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-i3", "nickname": "i3电车研究所", "account_type": "model_specialist",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": null,
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "i3电车研究所",
+        "bio": "专注宝马纯电车型｜续航实测·充电体验·用车成本",
+        "tone": "极客、理性、数据导向",
+        "voice_rules": ["测评口吻，先数据后结论", "续航与能耗必须写明测试条件", "不用夸张形容词", "引用官方参数并注明工况"],
+        "target_customers": ["电车爱好者", "从燃油车转向电车的理性用户", "在Model 3、小米SU7与i3之间对比的潜在客户"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["i3", "i4"],
+        "content_positioning": "宝马纯电车型深度研究：续航实测、充电体验与用车成本",
+        "content_mix": { "model_review": 0.35, "comparison": 0.25, "ownership_tips": 0.2, "finance_explainer": 0.1, "buying_guide": 0.1 },
+        "goals": { "monthly_qualified_leads": 25, "monthly_posts": 15, "monthly_appointments": 8 },
+        "signature_phrases": ["数据不说谎", "研究所实测记录"],
+        "taboo_topics": ["虚标续航", "炒作安全事故", "贬低其他品牌电车"]
+      }
+    },
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-guide", "nickname": "杭州买车攻略君", "account_type": "local_guide",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": null,
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "攻略君",
+        "bio": "杭州本地买车攻略｜上牌·补贴·试驾路线·看车流程",
+        "tone": "热心、本地化、攻略感强",
+        "voice_rules": ["多用杭州本地场景：绕城、上牌、充电桩", "清单式攻略，步骤清晰", "提醒政策以官方发布为准", "不做硬广，先给干货"],
+        "target_customers": ["杭州首次购车人群", "外地来杭工作的新杭州人", "关注杭州上牌与补贴政策的用户"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["i3", "X3", "3 Series", "X1", "i4", "iX3", "5 Series"],
+        "content_positioning": "杭州本地购车攻略：上牌、补贴、试驾路线与看车流程",
+        "content_mix": { "buying_guide": 0.35, "local_life": 0.3, "finance_explainer": 0.15, "dealer_event": 0.1, "price_offer": 0.1 },
+        "goals": { "monthly_qualified_leads": 20, "monthly_posts": 16, "monthly_appointments": 6 },
+        "signature_phrases": ["杭州买车先看攻略君", "收藏这篇少走弯路"],
+        "taboo_topics": ["虚构补贴政策", "诱导私下交易", "贬低其他门店"]
+      }
+    },
+    {
+      "dealer": "hz-bmw", "platform_account_id": "xhs-hz-story", "nickname": "宝马车主故事馆", "account_type": "customer_story",
+      "status": "active", "auth_state": "authenticated", "city": "杭州", "salesperson_name": null,
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "车主故事馆馆长",
+        "bio": "记录真实宝马车主的提车与用车故事",
+        "tone": "温暖、真实、故事化",
+        "voice_rules": ["以车主第一视角讲述", "发布前必须取得车主授权", "弱化价格，强调生活变化", "不编造车主经历"],
+        "target_customers": ["关注真实用车体验的潜在客户", "已提车车主及其亲友", "追求生活品质的家庭用户"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["X3", "i3", "5 Series"],
+        "content_positioning": "真实车主提车与用车故事，传递宝马生活方式",
+        "content_mix": { "customer_story": 0.5, "ownership_tips": 0.2, "local_life": 0.2, "dealer_event": 0.1 },
+        "goals": { "monthly_qualified_leads": 10, "monthly_posts": 8, "monthly_appointments": 4 },
+        "signature_phrases": ["每台宝马背后都有一个故事", "来故事馆听车主说"],
+        "taboo_topics": ["虚构车主身份", "泄露车主隐私", "炫耀成交价格"]
+      }
+    },
+    {
+      "dealer": "sh-bmw", "platform_account_id": "xhs-sh-official", "nickname": "上海宝马中心官方", "account_type": "official",
+      "status": "active", "auth_state": "authenticated", "city": "上海", "salesperson_name": null,
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "上海宝马中心官方号",
+        "bio": "上海宝马中心官方账号｜旗舰车型·商务用车·门店活动",
+        "tone": "国际化、精致、克制",
+        "voice_rules": ["以“我们”自称", "中英文车型名规范书写", "活动信息写清时间地点", "价格统一引导书面报价"],
+        "target_customers": ["上海高端商务人群", "关注5系与X3的改善型用户", "门店老客户"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["5 Series", "X3", "i3"],
+        "content_positioning": "上海门店官方：旗舰车型、商务用车与门店活动",
+        "content_mix": { "dealer_event": 0.3, "model_review": 0.25, "inventory_showcase": 0.2, "price_offer": 0.15, "ownership_tips": 0.1 },
+        "goals": { "monthly_qualified_leads": 25, "monthly_posts": 18, "monthly_appointments": 10 },
+        "signature_phrases": ["上海宝马中心，期待您的光临", "品质之选"],
+        "taboo_topics": ["口语化段子", "竞品负面对比", "未经确认的优惠"]
+      }
+    },
+    {
+      "dealer": "sh-bmw", "platform_account_id": "xhs-sh-sales-zhao", "nickname": "赵哥说车·上海宝马", "account_type": "salesperson",
+      "status": "active", "auth_state": "requires_auth", "city": "上海", "salesperson_name": "赵强",
+      "outreach_approval_policy": null, "daily_outreach_limit": null, "daily_publish_limit": null,
+      "persona": {
+        "persona_name": "赵哥",
+        "bio": "上海宝马销售赵强｜X3与5系购车流程、置换、交付细节",
+        "tone": "豪爽、实在、老销售的经验感",
+        "voice_rules": ["第一人称“赵哥”", "讲清购车流程与交付环节的门道", "不说虚的，给实际建议", "提醒一切以合同为准"],
+        "target_customers": ["上海换购X3的车主", "需要商务用车的5系潜在客户", "关注置换流程的老车主"],
+        "focus_brands": ["BMW"],
+        "focus_models": ["X3", "5 Series"],
+        "content_positioning": "上海老销售讲X3与5系的购车流程、置换与交付细节",
+        "content_mix": { "buying_guide": 0.25, "price_offer": 0.2, "finance_explainer": 0.2, "comparison": 0.2, "customer_story": 0.15 },
+        "goals": { "monthly_qualified_leads": 30, "monthly_posts": 10, "monthly_appointments": 12 },
+        "signature_phrases": ["赵哥说车，实在不绕弯", "上海买宝马找赵哥"],
+        "taboo_topics": ["承诺非公开价格", "诋毁同行", "夸大置换价格"]
+      }
+    }
+  ]
+}

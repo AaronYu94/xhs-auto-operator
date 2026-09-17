@@ -1,0 +1,47 @@
+{
+  "_about": "Verbatim tools/call results captured from a real xiaohongshu-mcp instance (upstream build of 2026-09-13) whose Xiaohongshu session was NOT logged in. Feed/user ids and xsec tokens in the requests were placeholders; responses contain no personal data.",
+  "captured_at": "2026-09-13T22:31:47Z",
+  "check_login_status": {
+    "content": [
+      {
+        "type": "text",
+        "text": "❌ 未登录\n\n请使用 get_login_qrcode 工具获取二维码进行登录。"
+      }
+    ]
+  },
+  "search_feeds": {
+    "content": [
+      {
+        "type": "text",
+        "text": "工具 search_feeds 执行时发生内部错误: context deadline exceeded\n\n请查看服务端日志获取详细信息。"
+      }
+    ],
+    "isError": true
+  },
+  "get_feed_detail": {
+    "content": [
+      {
+        "type": "text",
+        "text": "获取Feed详情失败: 笔记不可访问: 当前笔记暂时无法浏览"
+      }
+    ],
+    "isError": true
+  },
+  "user_profile": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"userBasicInfo\": {\n    \"gender\": 0,\n    \"ipLocation\": \"\",\n    \"desc\": \"\",\n    \"imageb\": \"\",\n    \"nickname\": \"\",\n    \"images\": \"\",\n    \"redId\": \"\"\n  },\n  \"interactions\": null,\n  \"feeds\": null\n}"
+      }
+    ]
+  },
+  "get_my_profile": {
+    "content": [
+      {
+        "type": "text",
+        "text": "工具 get_my_profile 执行时发生内部错误: context deadline exceeded\n\n请查看服务端日志获取详细信息。"
+      }
+    ],
+    "isError": true
+  }
+}

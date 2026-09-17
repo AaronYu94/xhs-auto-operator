@@ -1,0 +1,40 @@
+# One xiaohongshu-mcp instance per managed Xiaohongshu account (plus `research`), e.g. xhs-mcp@research, xhs-mcp@slot1.
+# Each instance has its own state directory (= its own login session) and port (/etc/xhs-operator/mcp-<name>.env).
+# Chromium is pre-installed read-only under /opt/xhs-mcp/cache by deploy/server/setup.sh (no runtime download).
+# XHS_PROXY / XHS_FP_SEED are never set.
+[Unit]
+Description=xiaohongshu-mcp instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xhsmcp
+Group=xhsmcp
+EnvironmentFile=/etc/xhs-operator/mcp.env
+EnvironmentFile=/etc/xhs-operator/mcp-%i.env
+Environment=HOME=/var/lib/xhs-mcp/%i
+Environment=XDG_CONFIG_HOME=/var/lib/xhs-mcp/%i/config
+Environment=XDG_CACHE_HOME=/opt/xhs-mcp/cache
+Environment=COOKIES_PATH=/var/lib/xhs-mcp/%i/cookies.json
+Environment=TMPDIR=/var/lib/xhs-mcp/%i/tmp
+Environment=TZ=Asia/Shanghai
+UnsetEnvironment=XHS_PROXY XHS_FP_SEED
+StateDirectory=xhs-mcp/%i
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/xhs-mcp/%i
+ExecStartPre=/usr/bin/mkdir -p /var/lib/xhs-mcp/%i/config /var/lib/xhs-mcp/%i/tmp
+ExecStart=/opt/xhs-mcp/bin/xiaohongshu-mcp -port 127.0.0.1:${XHS_MCP_PORT} -headless=true
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+UMask=0077
+MemoryMax=1200M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/xhs-mcp/%i
+
+[Install]
+WantedBy=multi-user.target

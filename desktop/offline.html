@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>AI汽车运营官</title>
+<style>
+  :root { color-scheme: light; --bg: #f6f7f9; --card: #fff; --text: #1f2329; --muted: #646a73; --line: #e4e6eb; --brand: #1f5eff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; }
+  .card { width: min(440px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
+  h1 { margin: 0 0 8px; font-size: 18px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .reason { font-size: 12px; word-break: break-all; }
+  button { margin-top: 8px; border: 0; border-radius: 8px; padding: 9px 18px; background: var(--brand); color: #fff; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>暂时连不上服务器</h1>
+  <p>请检查本机网络后重试；门店网络正常仍无法连接时，请联系系统管理员。</p>
+  <p class="reason" id="reason"></p>
+  <button id="retry" type="button">重新连接</button>
+  <p class="reason" id="countdown"></p>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const target = params.get('url');
+  document.getElementById('reason').textContent = params.get('reason') ? `原因：${params.get('reason')}` : '';
+  const retry = () => { if (target && target.startsWith('https://')) location.href = target; };
+  document.getElementById('retry').addEventListener('click', retry);
+  let left = 30;
+  const tick = () => {
+    document.getElementById('countdown').textContent = `${left} 秒后自动重试`;
+    if (left-- <= 0) retry(); else setTimeout(tick, 1000);
+  };
+  tick();
+</script>
+</body>
+</html>

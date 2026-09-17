@@ -1,0 +1,30 @@
+{
+  "name": "xhs-auto-operator",
+  "version": "1.0.0",
+  "description": "Automotive Xiaohongshu AI Operations & Lead Acquisition System — an AI operations employee for dealer groups managing fleets of Xiaohongshu accounts.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "APP_ENV=production node src/cli.ts serve",
+    "serve": "node src/cli.ts serve",
+    "dev": "APP_ENV=development node --watch src/cli.ts serve",
+    "demo": "APP_ENV=development XHS_PROVIDER=simulation XHS_SIM_REBASE_TO_NOW=true DATABASE_PATH=./data/demo.db node src/cli.ts demo",
+    "scheduler": "node src/cli.ts scheduler",
+    "migrate": "node src/cli.ts migrate",
+    "doctor": "node src/cli.ts doctor",
+    "seed:demo": "node src/cli.ts seed-demo",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "test:unit": "node --test --test-concurrency=4 \"test/unit/**/*.test.ts\"",
+    "test:integration": "node --test \"test/integration/**/*.test.ts\"",
+    "test:e2e": "node --test \"test/e2e/**/*.test.ts\"",
+    "build": "npm run typecheck && npm run test:unit && node src/cli.ts doctor --build-check"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2"
+  }
+}

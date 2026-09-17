@@ -1,0 +1,1884 @@
+{
+  "description": "SIMULATION CORPUS — synthetic Xiaohongshu-style public notes/comments for tests and demos only. Not real platform data.",
+  "notes": [
+    {
+      "platform_post_id": "note-i3-worth-001",
+      "xsec_token": "ABsimI3worth001x9Kd=",
+      "title": "宝马i3现在值得买吗？",
+      "content": "最近好多粉丝问我宝马i3到底值不值得入手🤔\n开了一周35L，说几点真实感受：\n1️⃣ 底盘质感确实是宝马味儿，高速很稳\n2️⃣ 续航冬天会打折，市区通勤完全够\n3️⃣ 后排空间中规中矩，一米八坐着头部有点紧\n4️⃣ 价格现在比年初松动不少，具体优惠看各地门店\n总结：喜欢驾驶感、预算30万左右的可以冲，纯看性价比的再对比一下～\n#宝马i3[话题]# #新能源汽车[话题]# #买车攻略[话题]#",
+      "tags": [
+        "宝马i3",
+        "新能源汽车",
+        "买车攻略"
+      ],
+      "keywords": [
+        "宝马i3",
+        "i3值得买吗",
+        "i3优惠",
+        "宝马i3价格",
+        "i3落地"
+      ],
+      "author": {
+        "platform_user_id": "u-kol-ev-001",
+        "nickname": "电车老司机阿杰"
+      },
+      "ip_location": "上海",
+      "like_count": 2386,
+      "comment_count": 214,
+      "collect_count": 912,
+      "published_at": "2026-09-08T11:30:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-i3worth-001",
+          "author": {
+            "platform_user_id": "u-ref-shuai-001",
+            "nickname": "小熊软糖"
+          },
+          "content": "帅",
+          "ip_location": null,
+          "like_count": 3,
+          "published_at": "2026-09-10T08:12:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-002",
+          "author": {
+            "platform_user_id": "u-ref-space-001",
+            "nickname": "一米八的大个子"
+          },
+          "content": "这车后排空间怎么样",
+          "ip_location": null,
+          "like_count": 12,
+          "published_at": "2026-09-10T09:40:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-i3worth-002-r1",
+              "author": {
+                "platform_user_id": "u-owner-i3-001",
+                "nickname": "i3车主小严"
+              },
+              "content": "后排一般，一米七五坐着还行，再高就有点压头了",
+              "ip_location": "浙江",
+              "like_count": 6,
+              "published_at": "2026-09-10T10:05:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-i3worth-002"
+            },
+            {
+              "platform_comment_id": "c-i3worth-002-r2",
+              "author": {
+                "platform_user_id": "u-ref-space-001",
+                "nickname": "一米八的大个子"
+              },
+              "content": "好的谢谢🙏",
+              "ip_location": null,
+              "like_count": 0,
+              "published_at": "2026-09-10T10:30:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-i3worth-002-r1"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-i3worth-003",
+          "author": {
+            "platform_user_id": "u-ref-price-001",
+            "nickname": "今天也要早睡"
+          },
+          "content": "现在优惠多少",
+          "ip_location": null,
+          "like_count": 25,
+          "published_at": "2026-09-10T12:20:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-i3worth-003-r1",
+              "author": {
+                "platform_user_id": "u-noise-006",
+                "nickname": "桃子汽水"
+              },
+              "content": "同问+1",
+              "ip_location": "北京",
+              "like_count": 2,
+              "published_at": "2026-09-10T13:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-i3worth-003"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-i3worth-004",
+          "author": {
+            "platform_user_id": "u-ref-price-002",
+            "nickname": "奶茶三分糖"
+          },
+          "content": "现在i3优惠多少",
+          "ip_location": null,
+          "like_count": 18,
+          "published_at": "2026-09-10T15:45:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-005",
+          "author": {
+            "platform_user_id": "u-hz-buyer-001",
+            "nickname": "西湖边的小鹿"
+          },
+          "content": "杭州i3 35L落地多少",
+          "ip_location": "浙江",
+          "like_count": 4,
+          "published_at": "2026-09-10T14:05:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-006",
+          "author": {
+            "platform_user_id": "u-negative-001",
+            "nickname": "路过的猫"
+          },
+          "content": "i3性价比怎么样",
+          "ip_location": "浙江",
+          "like_count": 1,
+          "published_at": "2026-09-09T07:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-007",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "宝马i3底价私信我，杭州4S店销售",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-09T02:15:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-008",
+          "author": {
+            "platform_user_id": "u-gd-buyer-001",
+            "nickname": "深圳湾跑步的阿辉"
+          },
+          "content": "深圳i3 35L落地多少",
+          "ip_location": "广东",
+          "like_count": 2,
+          "published_at": "2026-09-10T03:50:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-009",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 1,
+          "published_at": "2026-09-08T13:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-010",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-08T14:22:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-011",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "😍😍😍",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-08T15:10:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3worth-012",
+          "author": {
+            "platform_user_id": "u-noise-005",
+            "nickname": "提车啦"
+          },
+          "content": "已经提了Model Y 很香",
+          "ip_location": "江苏",
+          "like_count": 9,
+          "published_at": "2026-09-09T11:00:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-i3worth-012-r1",
+              "author": {
+                "platform_user_id": "u-noise-003",
+                "nickname": "哈哈怪"
+              },
+              "content": "哈哈哈 Model Y确实香",
+              "ip_location": "河南",
+              "like_count": 1,
+              "published_at": "2026-09-09T11:30:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-i3worth-012"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-i3worth-013",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "博主这件外套哪里买的[偷笑R]",
+          "ip_location": "山东",
+          "like_count": 0,
+          "published_at": "2026-09-09T16:40:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-i3-vs-m3-001",
+      "xsec_token": "ABsimI3vsM3001pQ2=",
+      "title": "i3和Model 3怎么选？30万预算纠结党看过来",
+      "content": "30万预算买纯电轿车，i3和Model 3是被问最多的组合🚗\n✅ i3：宝马的操控和做工，内饰豪华感强，品牌认可度高\n✅ Model 3：智能化和补能网络更强，加速猛\n❗️i3后排和后备箱小一点，Model 3悬挂偏硬\n我的建议：注重驾驶质感和品牌选i3，重度智能化用户选Model 3\n你们会怎么选？评论区聊聊👇\n#宝马i3[话题]# #特斯拉Model3[话题]# #纯电轿车[话题]#",
+      "tags": [
+        "宝马i3",
+        "特斯拉Model3",
+        "纯电轿车"
+      ],
+      "keywords": [
+        "i3 vs Model 3",
+        "i3和Model 3",
+        "宝马i3",
+        "Model 3",
+        "25万买什么车",
+        "纯电轿车推荐"
+      ],
+      "author": {
+        "platform_user_id": "u-kol-cmp-001",
+        "nickname": "选车研究员"
+      },
+      "ip_location": "北京",
+      "like_count": 1520,
+      "comment_count": 156,
+      "collect_count": 688,
+      "published_at": "2026-09-05T09:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-i3m3-001",
+          "author": {
+            "platform_user_id": "u-hz-buyer-001",
+            "nickname": "西湖边的小鹿"
+          },
+          "content": "i3和Model 3到底选哪个，纠结死了",
+          "ip_location": "浙江",
+          "like_count": 7,
+          "published_at": "2026-09-06T03:10:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-i3m3-001-r1",
+              "author": {
+                "platform_user_id": "u-owner-i3-001",
+                "nickname": "i3车主小严"
+              },
+              "content": "开了半年i3，做工和底盘真的好，推荐去试驾对比下",
+              "ip_location": "浙江",
+              "like_count": 5,
+              "published_at": "2026-09-06T05:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-i3m3-001"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-i3m3-002",
+          "author": {
+            "platform_user_id": "u-noise-005",
+            "nickname": "提车啦"
+          },
+          "content": "已经提了Model Y 很香",
+          "ip_location": "江苏",
+          "like_count": 4,
+          "published_at": "2026-09-05T12:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3m3-003",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈哈 每次都是这俩",
+          "ip_location": "河南",
+          "like_count": 2,
+          "published_at": "2026-09-05T13:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3m3-004",
+          "author": {
+            "platform_user_id": "u-budget-001",
+            "nickname": "刚毕业的阿哲"
+          },
+          "content": "25万左右能买i3吗？还是只能看Model 3",
+          "ip_location": "浙江",
+          "like_count": 3,
+          "published_at": "2026-09-06T09:20:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3m3-005",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "👍👍",
+          "ip_location": "北京",
+          "like_count": 0,
+          "published_at": "2026-09-06T10:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3m3-006",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "需要优惠的私我",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-06T11:11:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3m3-007",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "讲得很清楚，收藏了",
+          "ip_location": "山东",
+          "like_count": 1,
+          "published_at": "2026-09-07T01:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-own-hz-i3-001",
+      "xsec_token": "ABsimOwnHzI3001mZ7=",
+      "title": "杭州i3 35L白外红内实拍｜店里现车",
+      "content": "今天到店的i3 eDrive35L 白外红内，实车颜值真的顶🤍❤️\n红色内饰在阳光下特别有质感，白车身很耐看\n适合杭州城区通勤，续航和充电都很友好\n想看实车的宝子可以评论区留言，我们整理常见问题统一回复～\n#杭州宝马[话题]# #宝马i3[话题]# #杭州买车[话题]#",
+      "tags": [
+        "杭州宝马",
+        "宝马i3",
+        "杭州买车"
+      ],
+      "keywords": [
+        "杭州i3",
+        "宝马i3",
+        "杭州宝马",
+        "有现车吗",
+        "杭州买宝马",
+        "i3现车"
+      ],
+      "author": {
+        "platform_user_id": "xhs-hz-i3",
+        "nickname": "i3电车研究所"
+      },
+      "ip_location": "浙江",
+      "like_count": 368,
+      "comment_count": 7,
+      "collect_count": 142,
+      "published_at": "2026-09-09T02:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-own-i3-001",
+          "author": {
+            "platform_user_id": "u-hz-buyer-002",
+            "nickname": "钱塘江的风"
+          },
+          "content": "这台白色35L还在吗？多少钱",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-09-11T06:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-i3-002",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "红内饰好好看😍",
+          "ip_location": "四川",
+          "like_count": 1,
+          "published_at": "2026-09-09T05:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-i3-003",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "需要优惠的私我",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-09T06:40:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-i3-004",
+          "author": {
+            "platform_user_id": "u-owner-i3-001",
+            "nickname": "i3车主小严"
+          },
+          "content": "同款白红，提车三个月了，很满意",
+          "ip_location": "浙江",
+          "like_count": 8,
+          "published_at": "2026-09-09T09:15:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-own-i3-004-r1",
+              "author": {
+                "platform_user_id": "u-noise-004",
+                "nickname": "追风少年"
+              },
+              "content": "羡慕🥹",
+              "ip_location": "福建",
+              "like_count": 0,
+              "published_at": "2026-09-09T10:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-own-i3-004"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-own-i3-005",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲一个价格",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-10T02:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-i3-006",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈",
+          "ip_location": "河南",
+          "like_count": 0,
+          "published_at": "2026-09-10T04:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-own-hz-x3-001",
+      "xsec_token": "ABsimOwnHzX3001kL4=",
+      "title": "X3 25L白外棕内到店啦｜杭州看车找李姐",
+      "content": "李姐今天给大家拍一下刚到店的宝马X3 xDrive25L 白外棕内✨\n棕色内饰高级感拉满，二胎家庭空间也够用\n30万级豪华SUV里，X3的操控一直是强项\n想了解配置、置换和金融政策的，评论区问我，我一条条回～\n#宝马X3[话题]# #杭州宝马[话题]# #家用SUV[话题]#",
+      "tags": [
+        "宝马X3",
+        "杭州宝马",
+        "家用SUV"
+      ],
+      "keywords": [
+        "宝马X3",
+        "杭州宝马",
+        "X3落地价",
+        "有现车吗",
+        "30万SUV",
+        "置换补贴",
+        "杭州买宝马"
+      ],
+      "author": {
+        "platform_user_id": "xhs-hz-sales-li",
+        "nickname": "李姐聊宝马"
+      },
+      "ip_location": "浙江",
+      "like_count": 254,
+      "comment_count": 8,
+      "collect_count": 97,
+      "published_at": "2026-09-09T06:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-own-x3-001",
+          "author": {
+            "platform_user_id": "u-hz-x3-001",
+            "nickname": "余杭的周周"
+          },
+          "content": "X3 25L现在多少钱",
+          "ip_location": "浙江",
+          "like_count": 3,
+          "published_at": "2026-09-10T11:20:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-002",
+          "author": {
+            "platform_user_id": "u-hz-x3-002",
+            "nickname": "萧山阿May"
+          },
+          "content": "有白色现车吗",
+          "ip_location": "浙江",
+          "like_count": 1,
+          "published_at": "2026-09-11T02:45:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-003",
+          "author": {
+            "platform_user_id": "u-trade-001",
+            "nickname": "老张换车记"
+          },
+          "content": "旧车置换宝马X3有补贴吗",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-09-10T07:10:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-004",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "李姐好专业👍",
+          "ip_location": "北京",
+          "like_count": 1,
+          "published_at": "2026-09-09T08:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-005",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈",
+          "ip_location": "河南",
+          "like_count": 0,
+          "published_at": "2026-09-09T09:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-006",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "🚗🚗🚗",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-09T12:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-own-x3-007",
+          "author": {
+            "platform_user_id": "u-owner-x3-001",
+            "nickname": "X3车主老陈"
+          },
+          "content": "X3开了两年，保养也不贵，推荐",
+          "ip_location": "江苏",
+          "like_count": 4,
+          "published_at": "2026-09-10T01:30:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-own-x3-007-r1",
+              "author": {
+                "platform_user_id": "u-hz-x3-001",
+                "nickname": "余杭的周周"
+              },
+              "content": "请问油耗大概多少",
+              "ip_location": "浙江",
+              "like_count": 0,
+              "published_at": "2026-09-10T02:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-own-x3-007"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-x3-vs-glc-001",
+      "xsec_token": "ABsimX3vsGlc001rT5=",
+      "title": "X3和GLC选哪个？30万豪华SUV深度对比",
+      "content": "把宝马X3和奔驰GLC开了一个周末，给纠结的朋友一些参考📋\n🔹驾驶：X3更灵活，转向精准；GLC更舒适\n🔹空间：新X3后排进步很大，GLC略宽敞\n🔹内饰：GLC氛围灯更炫，X3更有科技感\n🔹价格：两台车终端优惠都不小，一定多问几家\n家用SUV推荐的话，喜欢开车选X3，喜欢坐车选GLC😄\n#宝马X3[话题]# #奔驰GLC[话题]# #家用SUV推荐[话题]#",
+      "tags": [
+        "宝马X3",
+        "奔驰GLC",
+        "家用SUV推荐"
+      ],
+      "keywords": [
+        "X3 vs GLC",
+        "X3和GLC",
+        "宝马X3",
+        "GLC",
+        "30万SUV",
+        "家用SUV推荐"
+      ],
+      "author": {
+        "platform_user_id": "u-kol-suv-001",
+        "nickname": "SUV测评君"
+      },
+      "ip_location": "广东",
+      "like_count": 3105,
+      "comment_count": 302,
+      "collect_count": 1450,
+      "published_at": "2026-09-06T10:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-x3glc-001",
+          "author": {
+            "platform_user_id": "u-cmp-glc-001",
+            "nickname": "南京的大白"
+          },
+          "content": "X3和GLC选哪个",
+          "ip_location": "江苏",
+          "like_count": 6,
+          "published_at": "2026-09-07T02:30:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-x3glc-001-r1",
+              "author": {
+                "platform_user_id": "u-owner-x3-001",
+                "nickname": "X3车主老陈"
+              },
+              "content": "家里两台都开过，X3开着更爽",
+              "ip_location": "江苏",
+              "like_count": 11,
+              "published_at": "2026-09-07T04:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-x3glc-001"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-x3glc-002",
+          "author": {
+            "platform_user_id": "u-noise-005",
+            "nickname": "提车啦"
+          },
+          "content": "已经提了GLC，很舒服",
+          "ip_location": "江苏",
+          "like_count": 3,
+          "published_at": "2026-09-07T06:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-x3glc-003",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 0,
+          "published_at": "2026-09-06T12:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-x3glc-004",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "博主拍得真好",
+          "ip_location": "山东",
+          "like_count": 1,
+          "published_at": "2026-09-06T14:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-x3glc-005",
+          "author": {
+            "platform_user_id": "u-lease-001",
+            "nickname": "苏州小林"
+          },
+          "content": "X3可以以租代购吗",
+          "ip_location": "江苏",
+          "like_count": 2,
+          "published_at": "2026-09-08T08:40:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-x3glc-006",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-08T09:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-buyer-suv-001",
+      "xsec_token": "ABsimBuyerSuv001wE8=",
+      "title": "预算30万，杭州，家用SUV推荐？X3还是Q5L",
+      "content": "二胎家庭，老公天天杭州市区通勤，周末带娃去周边玩😭\n预算30万左右，想换一台空间够、开着舒服的SUV\n目前在X3和Q5L之间纠结，有没有车主说说真实感受？\n最好这个月能定下来，求杭州靠谱的门店推荐🙏\n#家用SUV推荐[话题]# #宝马X3[话题]# #奥迪Q5L[话题]#",
+      "tags": [
+        "家用SUV推荐",
+        "宝马X3",
+        "奥迪Q5L"
+      ],
+      "keywords": [
+        "家用SUV推荐",
+        "30万SUV",
+        "X3 vs Q5L",
+        "X3还是Q5L",
+        "宝马X3",
+        "Q5L",
+        "杭州买宝马",
+        "准备换车"
+      ],
+      "author": {
+        "platform_user_id": "u-hz-author-001",
+        "nickname": "二胎妈妈Luna"
+      },
+      "ip_location": "浙江",
+      "like_count": 86,
+      "comment_count": 6,
+      "collect_count": 31,
+      "published_at": "2026-09-10T13:20:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-buyersuv-001",
+          "author": {
+            "platform_user_id": "u-owner-x3-001",
+            "nickname": "X3车主老陈"
+          },
+          "content": "X3开了两年，操控好，后排带两个娃够用",
+          "ip_location": "江苏",
+          "like_count": 5,
+          "published_at": "2026-09-10T14:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-buyersuv-002",
+          "author": {
+            "platform_user_id": "u-owner-q5l-001",
+            "nickname": "Q5L车主Kevin"
+          },
+          "content": "Q5L后排更宽，悬挂软一点，老人坐着舒服",
+          "ip_location": "上海",
+          "like_count": 4,
+          "published_at": "2026-09-10T15:30:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-buyersuv-002-r1",
+              "author": {
+                "platform_user_id": "u-hz-author-001",
+                "nickname": "二胎妈妈Luna"
+              },
+              "content": "谢谢！家里确实有老人要坐",
+              "ip_location": "浙江",
+              "like_count": 1,
+              "published_at": "2026-09-10T16:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-buyersuv-002"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-buyersuv-003",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "同杭州，蹲一个",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-11T01:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-buyersuv-004",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "需要优惠的私我",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-11T01:20:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-buyersuv-005",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "二胎妈妈太难了，抱抱",
+          "ip_location": "北京",
+          "like_count": 1,
+          "published_at": "2026-09-11T03:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-3series-vs-c-001",
+      "xsec_token": "ABsim3vsC001yH6=",
+      "title": "3系还是C级？预算30万第一台豪华车怎么选",
+      "content": "第一台豪华车，宝马3系和奔驰C级永远是经典二选一🤯\n3系：运动感、操控、年轻人首选\nC级：颜值、舒适、内饰氛围\n第一次买宝马的朋友注意：一定要试驾325Li和330Li的差别\n#宝马3系[话题]# #奔驰C级[话题]# #第一次买车[话题]#",
+      "tags": [
+        "宝马3系",
+        "奔驰C级",
+        "第一次买车"
+      ],
+      "keywords": [
+        "3系还是C级",
+        "3系 vs C级",
+        "宝马3系",
+        "3系",
+        "C级",
+        "第一次买宝马"
+      ],
+      "author": {
+        "platform_user_id": "u-kol-sedan-001",
+        "nickname": "轿车日记"
+      },
+      "ip_location": "江苏",
+      "like_count": 1877,
+      "comment_count": 188,
+      "collect_count": 803,
+      "published_at": "2026-09-07T08:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-3c-001",
+          "author": {
+            "platform_user_id": "u-cmp-c-001",
+            "nickname": "滨江程序员小吴"
+          },
+          "content": "3系还是C级，预算30万",
+          "ip_location": "浙江",
+          "like_count": 5,
+          "published_at": "2026-09-08T12:10:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-3c-002",
+          "author": {
+            "platform_user_id": "u-sedan-001",
+            "nickname": "陆家嘴搬砖人"
+          },
+          "content": "325Li现在落地多少",
+          "ip_location": "上海",
+          "like_count": 3,
+          "published_at": "2026-09-09T03:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-3c-003",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 0,
+          "published_at": "2026-09-07T10:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-3c-004",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈 年轻人选3系",
+          "ip_location": "河南",
+          "like_count": 2,
+          "published_at": "2026-09-07T11:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-3c-005",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "🔥🔥",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-07T12:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-3c-006",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "已经提了C级，老婆喜欢",
+          "ip_location": "山东",
+          "like_count": 6,
+          "published_at": "2026-09-08T02:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-25w-budget-001",
+      "xsec_token": "ABsim25wBudget001uJ3=",
+      "title": "25万买什么车？油车电车清单整理好了",
+      "content": "25万预算到底买什么车？帮大家整理了一份清单💰\n纯电：宝马i3（看终端优惠）、Model 3、小米SU7\n混动/油车：3系入门款要看优惠力度\n准备换车的朋友先想清楚：通勤距离、家里能不能装充电桩、以后要不要置换\n#25万买什么车[话题]# #准备换车[话题]# #买车攻略[话题]#",
+      "tags": [
+        "25万买什么车",
+        "准备换车",
+        "买车攻略"
+      ],
+      "keywords": [
+        "25万买什么车",
+        "准备换车",
+        "宝马i3",
+        "Model 3",
+        "什么时候买便宜"
+      ],
+      "author": {
+        "platform_user_id": "u-kol-budget-001",
+        "nickname": "买车省钱姐"
+      },
+      "ip_location": "四川",
+      "like_count": 4210,
+      "comment_count": 420,
+      "collect_count": 2980,
+      "published_at": "2026-09-05T12:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-25w-001",
+          "author": {
+            "platform_user_id": "u-change-001",
+            "nickname": "换车ing的大雄"
+          },
+          "content": "准备换车，油车换电车有必要吗",
+          "ip_location": "浙江",
+          "like_count": 4,
+          "published_at": "2026-09-06T02:40:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-25w-001-r1",
+              "author": {
+                "platform_user_id": "u-owner-i3-001",
+                "nickname": "i3车主小严"
+              },
+              "content": "家里能装充电桩就换，省钱很明显",
+              "ip_location": "浙江",
+              "like_count": 7,
+              "published_at": "2026-09-06T03:30:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-25w-001"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-25w-002",
+          "author": {
+            "platform_user_id": "u-budget-001",
+            "nickname": "刚毕业的阿哲"
+          },
+          "content": "25万买i3还是Model 3",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-09-06T08:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-25w-003",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-05T14:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-25w-004",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "收藏了收藏了",
+          "ip_location": "北京",
+          "like_count": 1,
+          "published_at": "2026-09-05T15:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-25w-005",
+          "author": {
+            "platform_user_id": "u-noise-005",
+            "nickname": "提车啦"
+          },
+          "content": "已经提了Model Y 很香",
+          "ip_location": "江苏",
+          "like_count": 3,
+          "published_at": "2026-09-06T12:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-25w-006",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "✨✨✨",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-07T00:30:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-first-bmw-001",
+      "xsec_token": "ABsimFirstBmw001aS1=",
+      "title": "第一次买宝马｜4S店砍价全过程，落地价公开",
+      "content": "人生第一台宝马终于提啦🎉 分享下在杭州买宝马3系的全过程\n1. 先线上问了三家店的报价，优惠多少差得挺多\n2. 到店试驾325Li，销售很耐心\n3. 贷款方案选了36期，首付三成\n4. 最后落地价比预期便宜不少，具体私下问的都是店里真实报价\n第一次买宝马的姐妹记得多比几家！\n#第一次买宝马[话题]# #宝马3系[话题]# #杭州买车[话题]#",
+      "tags": [
+        "第一次买宝马",
+        "宝马3系",
+        "杭州买车"
+      ],
+      "keywords": [
+        "第一次买宝马",
+        "落地价",
+        "优惠多少",
+        "宝马3系",
+        "3系",
+        "杭州买宝马",
+        "杭州宝马优惠",
+        "贷款方案"
+      ],
+      "author": {
+        "platform_user_id": "u-owner-story-001",
+        "nickname": "第一次买宝马的Coco"
+      },
+      "ip_location": "浙江",
+      "like_count": 5620,
+      "comment_count": 530,
+      "collect_count": 3310,
+      "published_at": "2026-09-07T14:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-firstbmw-001",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "优惠多少啊姐妹，求透露",
+          "ip_location": "北京",
+          "like_count": 14,
+          "published_at": "2026-09-07T15:00:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-firstbmw-001-r1",
+              "author": {
+                "platform_user_id": "u-owner-story-001",
+                "nickname": "第一次买宝马的Coco"
+              },
+              "content": "每个月政策不一样，建议直接问店里哦",
+              "ip_location": "浙江",
+              "like_count": 5,
+              "published_at": "2026-09-07T16:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-firstbmw-001"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-firstbmw-002",
+          "author": {
+            "platform_user_id": "u-hz-dealer-q-001",
+            "nickname": "拱墅区的阿木"
+          },
+          "content": "杭州哪家宝马店靠谱，求推荐销售",
+          "ip_location": "浙江",
+          "like_count": 9,
+          "published_at": "2026-09-09T05:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-firstbmw-003",
+          "author": {
+            "platform_user_id": "u-fin-001",
+            "nickname": "精打细算的橙子"
+          },
+          "content": "贷款方案是怎么谈的？利率多少",
+          "ip_location": "浙江",
+          "like_count": 4,
+          "published_at": "2026-09-08T03:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-firstbmw-004",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "宝马底价私信我，杭州4S店销售",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-08T04:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-firstbmw-005",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "恭喜恭喜🎉",
+          "ip_location": "四川",
+          "like_count": 2,
+          "published_at": "2026-09-07T18:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-firstbmw-006",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈 羡慕了",
+          "ip_location": "河南",
+          "like_count": 1,
+          "published_at": "2026-09-08T01:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-firstbmw-007",
+          "author": {
+            "platform_user_id": "u-hz-discount-001",
+            "nickname": "临平的小葵"
+          },
+          "content": "杭州宝马现在优惠力度大吗？想国庆前买",
+          "ip_location": "浙江",
+          "like_count": 3,
+          "published_at": "2026-09-11T08:10:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-sh-x3-pickup-001",
+      "xsec_token": "ABsimShX3Pickup001dF2=",
+      "title": "上海宝马提车记｜X3 30L落地价分享",
+      "content": "在上海宝马店提了X3 xDrive30L 黑色🖤\n整个流程两周搞定，置换了旧车，补贴也拿到了\n落地价就不在这里说具体数字了，各店政策不同\n上海的朋友买X3可以多跑几家对比\n#上海宝马[话题]# #宝马X3[话题]# #提车日记[话题]#",
+      "tags": [
+        "上海宝马",
+        "宝马X3",
+        "提车日记"
+      ],
+      "keywords": [
+        "上海宝马",
+        "上海X3",
+        "宝马X3",
+        "落地价",
+        "提车",
+        "置换补贴"
+      ],
+      "author": {
+        "platform_user_id": "u-sh-owner-001",
+        "nickname": "上海提车日记"
+      },
+      "ip_location": "上海",
+      "like_count": 932,
+      "comment_count": 97,
+      "collect_count": 305,
+      "published_at": "2026-09-08T03:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-shx3-001",
+          "author": {
+            "platform_user_id": "u-sh-buyer-001",
+            "nickname": "魔都打工仔"
+          },
+          "content": "上海X3现在什么价",
+          "ip_location": "上海",
+          "like_count": 5,
+          "published_at": "2026-09-09T10:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-shx3-002",
+          "author": {
+            "platform_user_id": "u-sh-buyer-002",
+            "nickname": "静安小周"
+          },
+          "content": "上海哪家宝马店靠谱",
+          "ip_location": "上海",
+          "like_count": 7,
+          "published_at": "2026-09-10T06:20:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-shx3-002-r1",
+              "author": {
+                "platform_user_id": "u-sh-owner-001",
+                "nickname": "上海提车日记"
+              },
+              "content": "我是在浦东那家提的，服务还不错",
+              "ip_location": "上海",
+              "like_count": 3,
+              "published_at": "2026-09-10T07:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-shx3-002"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-shx3-003",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "黑色好帅😎",
+          "ip_location": "福建",
+          "like_count": 1,
+          "published_at": "2026-09-08T05:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-shx3-004",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-08T06:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-shx3-005",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "已经提了Model Y 很香",
+          "ip_location": "山东",
+          "like_count": 2,
+          "published_at": "2026-09-08T09:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-hz-i3-testdrive-001",
+      "xsec_token": "ABsimHzI3Drive001gG3=",
+      "title": "杭州i3试驾体验｜续航、空间、优惠一次说清",
+      "content": "周末在杭州试驾了宝马i3 eDrive35L🔋\n城区开了40公里，电耗很低，动能回收很自然\n空间：前排舒服，后排适合短途\n优惠：杭州几家门店都有政策，建议提前电话问清楚\ni3值得买吗？喜欢宝马驾驶感的话值得！\n#杭州i3[话题]# #宝马i3[话题]# #试驾体验[话题]#",
+      "tags": [
+        "杭州i3",
+        "宝马i3",
+        "试驾体验"
+      ],
+      "keywords": [
+        "杭州i3",
+        "宝马i3",
+        "i3值得买吗",
+        "杭州宝马",
+        "i3优惠",
+        "杭州买宝马"
+      ],
+      "author": {
+        "platform_user_id": "u-hz-blogger-001",
+        "nickname": "杭州小众探店车"
+      },
+      "ip_location": "浙江",
+      "like_count": 645,
+      "comment_count": 6,
+      "collect_count": 233,
+      "published_at": "2026-09-10T02:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-hzi3drive-001",
+          "author": {
+            "platform_user_id": "u-hz-buyer-001",
+            "nickname": "西湖边的小鹿"
+          },
+          "content": "杭州i3 35L白外红内有现车吗？这周想去看看",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-09-12T01:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzi3drive-002",
+          "author": {
+            "platform_user_id": "u-owner-i3-001",
+            "nickname": "i3车主小严"
+          },
+          "content": "杭州冬天续航大概打八折，够用",
+          "ip_location": "浙江",
+          "like_count": 6,
+          "published_at": "2026-09-10T05:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzi3drive-003",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "宝马i3底价私信我，杭州4S店销售",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-10T06:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzi3drive-004",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 0,
+          "published_at": "2026-09-10T08:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzi3drive-005",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈 博主开车好稳",
+          "ip_location": "河南",
+          "like_count": 1,
+          "published_at": "2026-09-10T09:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzi3drive-006",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "[赞R][赞R]",
+          "ip_location": "北京",
+          "like_count": 0,
+          "published_at": "2026-09-11T00:10:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-bmw-finance-001",
+      "xsec_token": "ABsimBmwFinance001hH4=",
+      "title": "宝马贷款方案&置换补贴怎么谈？9月政策思路汇总",
+      "content": "买宝马不只看裸车优惠，金融和置换也能省不少💡\n📌贷款方案：关注首付比例、期数、利率，低息不一定最划算\n📌置换补贴：旧车评估价+厂家/门店补贴分开谈\n📌以租代购：适合想低首付先开起来的朋友\n📌什么时候买便宜：月底、季度末通常政策更好\n具体政策以当地门店为准哦\n#宝马[话题]# #汽车贷款[话题]# #置换补贴[话题]#",
+      "tags": [
+        "宝马",
+        "汽车贷款",
+        "置换补贴"
+      ],
+      "keywords": [
+        "贷款方案",
+        "置换补贴",
+        "以租代购",
+        "优惠多少",
+        "什么时候买便宜",
+        "宝马X3",
+        "宝马i3"
+      ],
+      "author": {
+        "platform_user_id": "u-fin-kol-001",
+        "nickname": "汽车金融老K"
+      },
+      "ip_location": "江苏",
+      "like_count": 1290,
+      "comment_count": 133,
+      "collect_count": 1120,
+      "published_at": "2026-09-06T05:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-finance-001",
+          "author": {
+            "platform_user_id": "u-fin-001",
+            "nickname": "精打细算的橙子"
+          },
+          "content": "i3贷款方案怎么样，首付多少",
+          "ip_location": "浙江",
+          "like_count": 4,
+          "published_at": "2026-09-09T13:00:00Z",
+          "sub_comments": [
+            {
+              "platform_comment_id": "c-finance-001-r1",
+              "author": {
+                "platform_user_id": "u-fin-kol-001",
+                "nickname": "汽车金融老K"
+              },
+              "content": "各店金融政策不同，建议到店问清楚总成本",
+              "ip_location": "江苏",
+              "like_count": 2,
+              "published_at": "2026-09-09T14:00:00Z",
+              "sub_comments": [],
+              "parent_comment_id": "c-finance-001"
+            }
+          ]
+        },
+        {
+          "platform_comment_id": "c-finance-002",
+          "author": {
+            "platform_user_id": "u-lease-001",
+            "nickname": "苏州小林"
+          },
+          "content": "X3可以以租代购吗？每个月大概多少",
+          "ip_location": "江苏",
+          "like_count": 3,
+          "published_at": "2026-09-09T15:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-finance-003",
+          "author": {
+            "platform_user_id": "u-trade-001",
+            "nickname": "老张换车记"
+          },
+          "content": "旧车是15年的途观，置换能补多少",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-09-10T04:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-finance-004",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲一个",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-09-06T07:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-finance-005",
+          "author": {
+            "platform_user_id": "u-noise-007",
+            "nickname": "不吃香菜"
+          },
+          "content": "学到了，收藏",
+          "ip_location": "山东",
+          "like_count": 1,
+          "published_at": "2026-09-06T09:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-finance-006",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "💰💰",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-07T02:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-hz-buying-guide-001",
+      "xsec_token": "ABsimHzGuide001jJ5=",
+      "title": "杭州买宝马攻略｜到店前必看的6件事",
+      "content": "在杭州买宝马，到店前先把这几件事做好📝\n1. 明确车型和配置：i3、3系、X3价格区间差很多\n2. 问清落地价包含哪些费用\n3. 有现车吗？现车和订车优惠可能不一样\n4. 贷款、置换政策提前问\n5. 多对比几家杭州宝马门店\n6. 试驾一定要跑一段高架\n#杭州买宝马[话题]# #杭州宝马[话题]# #买车攻略[话题]#",
+      "tags": [
+        "杭州买宝马",
+        "杭州宝马",
+        "买车攻略"
+      ],
+      "keywords": [
+        "杭州买宝马",
+        "杭州宝马",
+        "杭州宝马优惠",
+        "浙江宝马价格",
+        "落地价",
+        "有现车吗"
+      ],
+      "author": {
+        "platform_user_id": "u-hz-guide-kol-001",
+        "nickname": "杭州买车指南针"
+      },
+      "ip_location": "浙江",
+      "like_count": 812,
+      "comment_count": 6,
+      "collect_count": 690,
+      "published_at": "2026-09-09T12:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-hzguide-001",
+          "author": {
+            "platform_user_id": "u-hz-discount-001",
+            "nickname": "临平的小葵"
+          },
+          "content": "杭州买宝马哪家优惠多",
+          "ip_location": "浙江",
+          "like_count": 3,
+          "published_at": "2026-09-10T10:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzguide-002",
+          "author": {
+            "platform_user_id": "u-hz-dealer-q-001",
+            "nickname": "拱墅区的阿木"
+          },
+          "content": "有没有杭州靠谱的宝马销售推荐",
+          "ip_location": "浙江",
+          "like_count": 4,
+          "published_at": "2026-09-10T12:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzguide-003",
+          "author": {
+            "platform_user_id": "u-dealer-spam-001",
+            "nickname": "宝马顾问小陈"
+          },
+          "content": "需要优惠的私我",
+          "ip_location": "浙江",
+          "like_count": 0,
+          "published_at": "2026-09-10T13:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzguide-004",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "实用！",
+          "ip_location": "北京",
+          "like_count": 1,
+          "published_at": "2026-09-09T14:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzguide-005",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈 第6条太真实了",
+          "ip_location": "河南",
+          "like_count": 2,
+          "published_at": "2026-09-09T15:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-hzguide-006",
+          "author": {
+            "platform_user_id": "u-gd-buyer-001",
+            "nickname": "深圳湾跑步的阿辉"
+          },
+          "content": "深圳有没有类似攻略",
+          "ip_location": "广东",
+          "like_count": 0,
+          "published_at": "2026-09-10T02:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-i3-one-year-001",
+      "xsec_token": "ABsimI3OneYear001kK6=",
+      "title": "宝马i3开了一年，说说真实感受",
+      "content": "宝马i3提车一年，跑了1.8万公里🚙\n优点：操控好、做工好、电耗低\n缺点：后排小、车机偶尔卡\ni3值得买吗？我个人觉得值得，但要看需求\n#宝马i3[话题]# #车主真实感受[话题]#",
+      "tags": [
+        "宝马i3",
+        "车主真实感受"
+      ],
+      "keywords": [
+        "宝马i3",
+        "i3值得买吗",
+        "i3车主"
+      ],
+      "author": {
+        "platform_user_id": "u-old-author-001",
+        "nickname": "i3一年车主"
+      },
+      "ip_location": "浙江",
+      "like_count": 402,
+      "comment_count": 4,
+      "collect_count": 150,
+      "published_at": "2026-06-15T10:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-i3year-001",
+          "author": {
+            "platform_user_id": "u-old-q-001",
+            "nickname": "拱宸桥的风筝"
+          },
+          "content": "i3落地多少？杭州的",
+          "ip_location": "浙江",
+          "like_count": 2,
+          "published_at": "2026-06-16T02:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3year-002",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 0,
+          "published_at": "2026-06-16T05:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3year-003",
+          "author": {
+            "platform_user_id": "u-noise-002",
+            "nickname": "蹲蹲蹲"
+          },
+          "content": "蹲",
+          "ip_location": "湖北",
+          "like_count": 0,
+          "published_at": "2026-06-17T08:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-i3year-004",
+          "author": {
+            "platform_user_id": "u-noise-005",
+            "nickname": "提车啦"
+          },
+          "content": "已经提了Model Y 很香",
+          "ip_location": "江苏",
+          "like_count": 1,
+          "published_at": "2026-06-18T09:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    },
+    {
+      "platform_post_id": "note-hz-cafe-001",
+      "xsec_token": "ABsimHzCafe001lL7=",
+      "title": "杭州周末去哪儿｜西湖边咖啡店合集☕️",
+      "content": "整理了西湖边6家适合发呆的咖啡店☕️\n北山街那家露台看湖绝了\n停车有点难，建议地铁过去\n#杭州周末[话题]# #杭州咖啡[话题]#",
+      "tags": [
+        "杭州周末",
+        "杭州咖啡"
+      ],
+      "keywords": [
+        "杭州周末",
+        "杭州咖啡",
+        "西湖"
+      ],
+      "author": {
+        "platform_user_id": "u-life-001",
+        "nickname": "西湖边喝咖啡"
+      },
+      "ip_location": "浙江",
+      "like_count": 3320,
+      "comment_count": 5,
+      "collect_count": 2710,
+      "published_at": "2026-09-11T04:00:00Z",
+      "comments": [
+        {
+          "platform_comment_id": "c-cafe-001",
+          "author": {
+            "platform_user_id": "u-noise-001",
+            "nickname": "momo"
+          },
+          "content": "好看",
+          "ip_location": "四川",
+          "like_count": 1,
+          "published_at": "2026-09-11T05:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-cafe-002",
+          "author": {
+            "platform_user_id": "u-noise-006",
+            "nickname": "桃子汽水"
+          },
+          "content": "收藏了周末去",
+          "ip_location": "北京",
+          "like_count": 2,
+          "published_at": "2026-09-11T06:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-cafe-003",
+          "author": {
+            "platform_user_id": "u-hz-buyer-001",
+            "nickname": "西湖边的小鹿"
+          },
+          "content": "北山街那家我也去过，超出片",
+          "ip_location": "浙江",
+          "like_count": 3,
+          "published_at": "2026-09-11T07:30:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-cafe-004",
+          "author": {
+            "platform_user_id": "u-noise-004",
+            "nickname": "追风少年"
+          },
+          "content": "☕️☕️☕️",
+          "ip_location": "福建",
+          "like_count": 0,
+          "published_at": "2026-09-11T09:00:00Z",
+          "sub_comments": []
+        },
+        {
+          "platform_comment_id": "c-cafe-005",
+          "author": {
+            "platform_user_id": "u-noise-003",
+            "nickname": "哈哈怪"
+          },
+          "content": "哈哈哈 停车是真难",
+          "ip_location": "河南",
+          "like_count": 1,
+          "published_at": "2026-09-11T10:00:00Z",
+          "sub_comments": []
+        }
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "platform_user_id": "u-hz-buyer-001",
+      "nickname": "西湖边的小鹿",
+      "bio": "杭州｜准备换电车",
+      "ip_location": "浙江",
+      "follower_count": 86,
+      "note_count": 12,
+      "recent_note_ids": []
+    },
+    {
+      "platform_user_id": "u-hz-buyer-002",
+      "nickname": "钱塘江的风",
+      "bio": "杭州打工人｜想买台电车通勤",
+      "ip_location": "浙江",
+      "follower_count": 41,
+      "note_count": 5,
+      "recent_note_ids": []
+    },
+    {
+      "platform_user_id": "u-negative-001",
+      "nickname": "路过的猫",
+      "bio": "随便看看",
+      "ip_location": "浙江",
+      "follower_count": 12,
+      "note_count": 0,
+      "recent_note_ids": []
+    },
+    {
+      "platform_user_id": "u-dealer-spam-001",
+      "nickname": "宝马顾问小陈",
+      "bio": "杭州某宝马4S店销售顾问｜买车找我",
+      "ip_location": "浙江",
+      "follower_count": 1320,
+      "note_count": 356,
+      "recent_note_ids": []
+    },
+    {
+      "platform_user_id": "u-hz-author-001",
+      "nickname": "二胎妈妈Luna",
+      "bio": "杭州｜两个娃的妈｜换车进行中",
+      "ip_location": "浙江",
+      "follower_count": 230,
+      "note_count": 48,
+      "recent_note_ids": [
+        "note-buyer-suv-001"
+      ]
+    },
+    {
+      "platform_user_id": "u-gd-buyer-001",
+      "nickname": "深圳湾跑步的阿辉",
+      "bio": "深圳｜电车爱好者｜跑步",
+      "ip_location": "广东",
+      "follower_count": 77,
+      "note_count": 19,
+      "recent_note_ids": []
+    },
+    {
+      "platform_user_id": "xhs-hz-i3",
+      "nickname": "i3电车研究所",
+      "bio": "杭州宝马中心｜宝马i3/i4纯电车型专属账号",
+      "ip_location": "浙江",
+      "follower_count": 5210,
+      "note_count": 138,
+      "recent_note_ids": [
+        "note-own-hz-i3-001"
+      ]
+    },
+    {
+      "platform_user_id": "xhs-hz-sales-li",
+      "nickname": "李姐聊宝马",
+      "bio": "杭州宝马中心销售顾问李娜｜X3/X1",
+      "ip_location": "浙江",
+      "follower_count": 3380,
+      "note_count": 96,
+      "recent_note_ids": [
+        "note-own-hz-x3-001"
+      ]
+    }
+  ],
+  "inbox_scripts": [
+    {
+      "from_user_id": "u-hz-buyer-002",
+      "to_account_platform_id": null,
+      "delay_minutes": 30,
+      "content": "在的话我想了解下，白外红内那台还在吗？落地大概多少"
+    },
+    {
+      "from_user_id": "u-hz-buyer-002",
+      "to_account_platform_id": null,
+      "delay_minutes": 90,
+      "content": "好的，这周六下午可以过去看车，我电话13800001234"
+    },
+    {
+      "from_user_id": "u-negative-001",
+      "to_account_platform_id": null,
+      "delay_minutes": 20,
+      "content": "不需要，别再发了"
+    },
+    {
+      "from_user_id": "u-hz-buyer-001",
+      "to_account_platform_id": null,
+      "delay_minutes": 45,
+      "content": "你好，35L白外红内的现在还有吗？想问下落地价和贷款政策"
+    },
+    {
+      "from_user_id": "u-hz-x3-001",
+      "to_account_platform_id": null,
+      "delay_minutes": 60,
+      "content": "25L白色的现在什么价？我有台旧车能置换吗"
+    }
+  ]
+}

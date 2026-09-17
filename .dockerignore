@@ -1,0 +1,15 @@
+node_modules
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+.git
+.nodi-wiki
+cookies*.json
+xhs-login-*.png
+docs/design
+coverage
+desktop

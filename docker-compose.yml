@@ -1,0 +1,95 @@
+# AI 汽车运营官 — production stack.
+#
+#   app                    console + API + scheduler (SQLite on the app-data volume)
+#   xhs-mcp-research       xiaohongshu-mcp instance for public search / notes / comments
+#   xhs-mcp-account-1..5   ONE xiaohongshu-mcp instance per managed Xiaohongshu account (own cookies volume)
+#
+# The MCP instances hold live account sessions: they are only reachable on the private `backend` network
+# (no published ports) and require AUTH_TOKEN. They need outbound internet access to reach xiaohongshu.com.
+# This stack never sets XHS_PROXY or XHS_FP_SEED. Note that upstream xiaohongshu-mcp ships its own Chromium build
+# (downloaded from the upstream CDN at image build time) with fingerprint flags enabled by default — review this
+# against your compliance policy before deploying (see docs/DEPLOYMENT.md).
+#
+# Usage:  cp .env.example .env  (fill in secrets and XHS_MCP_ACCOUNTS)  →  docker compose up -d --build
+#         docker compose exec app node src/cli.ts dealer import /data/my-dealer.json
+#         docker compose exec app node src/cli.ts doctor
+
+name: xhs-operator
+
+x-xhs-mcp: &xhs-mcp
+  # Pin an exact tag or digest in production (e.g. xpzouying/xiaohongshu-mcp:vX.Y.Z@sha256:…).
+  image: ${XHS_MCP_IMAGE:-xpzouying/xiaohongshu-mcp:latest}
+  restart: unless-stopped
+  init: true
+  networks: [backend]
+  environment: &xhs-mcp-env
+    COOKIES_PATH: /app/data/cookies.json
+    HOME: /app/data/home
+    XDG_CONFIG_HOME: /app/data/config
+    TZ: Asia/Shanghai
+    AUTH_TOKEN: ${XHS_MCP_TOKEN:?set XHS_MCP_TOKEN in .env}
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18060/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+services:
+  app:
+    build: .
+    image: xhs-operator:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATABASE_PATH: /data/xhs-operator.db
+      XHS_PROVIDER: mcp
+      XHS_MCP_RESEARCH_URL: http://xhs-mcp-research:18060/mcp
+    ports:
+      # bind to localhost; put a TLS reverse proxy (nginx/caddy) in front and set PUBLIC_BASE_URL + COOKIE_SECURE=true
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - app-data:/data
+    networks: [backend]
+    depends_on:
+      - xhs-mcp-research
+      - xhs-mcp-account-1
+      - xhs-mcp-account-2
+      - xhs-mcp-account-3
+      - xhs-mcp-account-4
+      - xhs-mcp-account-5
+
+  xhs-mcp-research:
+    <<: *xhs-mcp
+    volumes: [xhs-research:/app/data]
+
+  xhs-mcp-account-1:
+    <<: *xhs-mcp
+    volumes: [xhs-account-1:/app/data]
+  xhs-mcp-account-2:
+    <<: *xhs-mcp
+    volumes: [xhs-account-2:/app/data]
+  xhs-mcp-account-3:
+    <<: *xhs-mcp
+    volumes: [xhs-account-3:/app/data]
+  xhs-mcp-account-4:
+    <<: *xhs-mcp
+    volumes: [xhs-account-4:/app/data]
+  xhs-mcp-account-5:
+    <<: *xhs-mcp
+    volumes: [xhs-account-5:/app/data]
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  app-data:
+  xhs-research:
+  xhs-account-1:
+  xhs-account-2:
+  xhs-account-3:
+  xhs-account-4:
+  xhs-account-5:

@@ -1,0 +1,29 @@
+{
+  "name": "ai-auto-operator-desktop",
+  "productName": "AI汽车运营官",
+  "version": "1.0.0",
+  "description": "AI 汽车运营官桌面端：连接云端控制台（证书指纹校验）",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node -e \"const c=require('./server.json'); if(!/^https:/.test(c.url)||!c.fingerprints?.length) process.exit(1)\"",
+    "dist:mac": "npm run check && electron-builder --mac dmg --arm64 --x64",
+    "dist:win": "npm run check && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "44.4.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.xhs-auto-operator.desktop",
+    "productName": "AI汽车运营官",
+    "artifactName": "AI-Auto-Operator-${version}-${os}-${arch}.${ext}",
+    "files": ["main.js", "offline.html", "server.json", "package.json"],
+    "directories": { "output": "dist", "buildResources": "build" },
+    "mac": { "category": "public.app-category.business", "icon": "build/icon.png" },
+    "dmg": { "title": "AI汽车运营官 ${version}" },
+    "win": { "icon": "build/icon.png" },
+    "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "AI汽车运营官", "createDesktopShortcut": "always" }
+  }
+}

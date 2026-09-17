@@ -1,0 +1,29 @@
+# AI 汽车运营官 console + API + scheduler (APP_ENV=production). Configuration: /etc/xhs-operator/app.env.
+# Listens on 127.0.0.1 only; operators reach it through an SSH tunnel or a TLS reverse proxy.
+[Unit]
+Description=AI 汽车运营官 (xhs-operator)
+After=network-online.target xhs-mcp@research.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xhs
+Group=xhs
+EnvironmentFile=/etc/xhs-operator/app.env
+WorkingDirectory=/opt/xhs-operator/app
+ExecStart=/usr/local/bin/node src/cli.ts serve
+StateDirectory=xhs-operator
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/xhs-operator
+
+[Install]
+WantedBy=multi-user.target
