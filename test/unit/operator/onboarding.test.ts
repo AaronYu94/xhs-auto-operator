@@ -43,6 +43,7 @@ function mcpNetwork(servers: Record<string, { loggedIn: boolean; nickname: strin
       case 'check_login_status':
         return text(s.loggedIn ? `✅ 已登录\n用户名: ${s.nickname}\n\n你可以使用其他功能了。` : '❌ 未登录\n\n请使用 get_login_qrcode 工具获取二维码进行登录。');
       case 'get_my_profile':
+        if (!s.loggedIn) return reply({ content: [{ type: 'text', text: '未登录' }], isError: true });
         return text(JSON.stringify({ userBasicInfo: { nickname: s.nickname, redId: 'red-1' }, interactions: [], feeds: [{ id: 'own-1', xsecToken: 't', modelType: 'note', noteCard: { displayTitle: '笔记', user: { userId: s.userId, nickname: s.nickname } } }] }));
       default:
         return reply({ content: [{ type: 'text', text: 'unexpected' }], isError: true });

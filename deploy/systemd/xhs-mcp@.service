@@ -29,7 +29,8 @@ Restart=on-failure
 RestartSec=10
 TimeoutStopSec=20
 UMask=0077
-MemoryMax=1200M
+# Chromium can briefly exceed 2 GiB while rendering the QR login page.
+MemoryMax=3G
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

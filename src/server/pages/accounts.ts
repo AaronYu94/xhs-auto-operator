@@ -55,7 +55,7 @@ export function accountsPage(env: PageEnv, rc: RequestContext): Reply {
     <span>回复率 ${esc(pct(o?.reply_rate_30d ?? 0))}</span><span>90天预约 ${esc(o?.appointments_90d ?? 0)}</span>
     <span>90天成交 ${esc(o?.won_90d ?? 0)}</span><span>30天发布 ${esc(o?.posts_published_30d ?? 0)}</span>
   </div>
-  <div class="row">${healthPill(o?.health_state ?? null, o?.health_score ?? null)} ${pill(authLabel, authTone, s.auth_detail ?? '')} ${paused ? pill(s.status === 'paused' ? '已暂停' : s.status, 'red') : ''}</div>
+  <div class="row">${healthPill(o?.health_state ?? null, o?.health_score ?? null)} ${pill(authLabel, authTone)} ${paused ? pill(s.status === 'paused' ? '已暂停' : s.status, 'red') : ''}</div>
   ${o?.health_issues?.length ? `<div class="tiny muted">${esc(o.health_issues.join('；'))}</div>` : ''}
   <div class="tiny muted">${s.auth_checked_at ? `登录检测 ${esc(ago(s.auth_checked_at, nowMs))}：${esc(s.auth_detail ?? '')}` : '尚未检测登录状态'}</div>
   <div class="stack" style="gap:6px">${caps}</div>

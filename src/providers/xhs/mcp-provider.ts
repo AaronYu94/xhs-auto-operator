@@ -730,12 +730,15 @@ export class McpXhsProvider implements XhsProvider {
     if (login.state === 'unknown') {
       return fail('REQUIRES_REVIEW', `login status could not be verified (${ep.label}): ${login.detail}`);
     }
-    if (login.state === 'logged_out') {
-      return { ok: true, data: { logged_in: false, username: null, platform_user_id: null, red_id: null, detail: login.detail, endpoint_label: ep.label } };
-    }
+    // A logged-out report can come from a stale selector: only a user id read from get_my_profile overrides it.
+    const loginReportedLoggedOut = login.state === 'logged_out';
+    const loggedOut = (detail: string): ProviderResult<XhsLoginStatus> => ({
+      ok: true,
+      data: { logged_in: false, username: null, platform_user_id: null, red_id: null, detail: `${login.detail}; ${detail}`, endpoint_label: ep.label },
+    });
     const nowMs = this.clock.now().getTime();
     const cached = this.identityCache.get(ep.key);
-    if (cached && cached.username === login.username && nowMs - cached.at < IDENTITY_CACHE_TTL_MS) {
+    if (!loginReportedLoggedOut && cached && cached.username === login.username && nowMs - cached.at < IDENTITY_CACHE_TTL_MS) {
       return {
         ok: true,
         data: {
@@ -755,6 +758,7 @@ export class McpXhsProvider implements XhsProvider {
       const tools = await this.tools(ep);
       if (!tools.some((t) => t.name === 'get_my_profile')) {
         identityDetail = 'user id not verified: get_my_profile tool not exposed';
+        if (loginReportedLoggedOut) return loggedOut(identityDetail);
       } else {
         const identity = identityFromMyProfile(parseToolJson(await this.call(ep, 'get_my_profile', { tab: 'note' }, 'read')));
         platformUserId = identity.platform_user_id;
@@ -762,10 +766,12 @@ export class McpXhsProvider implements XhsProvider {
         identityDetail = platformUserId
           ? 'user id verified via get_my_profile'
           : 'user id not verified: the account has no own notes on get_my_profile to read it from';
+        if (loginReportedLoggedOut && !platformUserId) return loggedOut(identityDetail);
         if (platformUserId) this.identityCache.set(ep.key, { username: login.username, platform_user_id: platformUserId, red_id: redId, at: nowMs });
       }
     } catch (err) {
       identityDetail = `user id not verified: get_my_profile failed (${(err as Error)?.message ?? String(err)})`;
+      if (loginReportedLoggedOut) return loggedOut(identityDetail);
     }
     return {
       ok: true,

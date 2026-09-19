@@ -202,7 +202,7 @@ describe('auth API', () => {
       assert.deepEqual({ ...s1.data, detail: undefined }, { logged_in: false, username: null, platform_user_id: null, red_id: null, detail: undefined, endpoint_label: 'account xhs-hz-i3' });
       assert.match(s1.data.detail, /未登录/);
     }
-    assert.equal(out.net.count('get_my_profile'), 0);
+    assert.equal(out.net.count('get_my_profile'), 1, 'a logged-out report is verified against the profile tool');
 
     const server: Server = { loggedIn: true, handlers: { get_my_profile: () => text(JSON.stringify(MY_PROFILE)) } };
     const inn = setup({ [I3]: server });
@@ -218,6 +218,28 @@ describe('auth API', () => {
     assert.equal(inn.net.count('get_my_profile'), 1, 'identity cached for the same nickname');
     assert.equal(inn.net.count('check_login_status'), 2, 'status always probes login live');
     assert.equal(inn.net.calls.find((c) => c.tool === 'get_my_profile')?.url, I3);
+  });
+
+  it('status: a stale logged-out selector is overridden only when get_my_profile proves the session', async () => {
+    const server: Server = { loggedIn: false, handlers: { get_my_profile: () => text(JSON.stringify(MY_PROFILE)) } };
+    const { provider, net } = setup({ [I3]: server });
+    const status = await provider.auth.status('xhs-hz-i3');
+    assert.ok(status.ok && status.data.logged_in);
+    if (status.ok) {
+      assert.equal(status.data.platform_user_id, 'self-001');
+      assert.equal(status.data.red_id, '950001');
+      assert.match(status.data.detail, /verified via get_my_profile/);
+    }
+    assert.equal(net.count('check_login_status'), 1);
+    assert.equal(net.count('get_my_profile'), 1);
+
+    await provider.auth.status('xhs-hz-i3');
+    assert.equal(net.count('get_my_profile'), 2, 'a logged-out report is re-verified, never answered from the identity cache');
+
+    const noUserId: Server = { loggedIn: false, handlers: { get_my_profile: () => text(JSON.stringify({ userBasicInfo: { nickname: 'x', redId: '1' }, feeds: [] })) } };
+    const unproven = await setup({ [I3]: noUserId }).provider.auth.status('xhs-hz-i3');
+    assert.ok(unproven.ok && !unproven.data.logged_in, 'a profile without a user id does not prove the session');
+    if (unproven.ok) assert.match(unproven.data.detail, /未登录[\s\S]*no own notes/);
   });
 
   it('status: identity unverifiable (no own notes / get_my_profile failure) → platform_user_id null with the reason', async () => {
