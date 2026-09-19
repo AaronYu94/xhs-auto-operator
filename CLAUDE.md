@@ -18,6 +18,7 @@ node --test test/unit/crm/funnel.test.ts          # single test file
 node --test --test-name-pattern="<regex>" test/unit/x/y.test.ts
 npm run build                          # typecheck + unit tests + `doctor --build-check`
 node src/cli.ts doctor [--offline] [--json]       # reports config/DB/provider/login/LLM status
+npm run migrate                        # apply DB migrations to DATABASE_PATH
 npm run dev                            # console with --watch (APP_ENV=development)
 npm run demo                           # simulation provider + fictional demo dealer in ./data/demo.db
 npm start                              # APP_ENV=production serve (scheduler runs in-process unless SCHEDULER_ENABLED=false)
@@ -27,7 +28,7 @@ npm run scheduler                      # scheduler-only worker process, no HTTP
 There is no linter; `typecheck` + tests are the gate. Config is env-only (`src/app/config.ts`, template in `.env.example`); load it with `set -a && . ./.env && set +a`. `dist/` only holds the built macOS `.app` bundles.
 
 Live XHS test (`npm test`'s glob includes it, but it skips itself unless this env var is set): `XHS_LIVE_MCP_URL=http://127.0.0.1:18060/mcp XHS_LIVE_MCP_TOKEN_FILE=… node --test test/live/xhs-live.test.ts`.
-Run one xiaohongshu-mcp instance for each account: `scripts/xhs-mcp-fleet.sh start|status|stop`. The macOS app is built with `scripts/macos/build-app.sh`. Server deploy without Docker (Ubuntu + systemd): `scripts/deploy.sh setup|release <ssh-host>` and `tls <ssh-host> <ip>` (DEPLOYMENT.md §3a/§3b). `desktop/` is a separate Electron package (its own devDependencies, not part of the server runtime): a window onto the cloud console that pins the server certificate fingerprint from `desktop/server.json`.
+Run one xiaohongshu-mcp instance for each account: `scripts/xhs-mcp-fleet.sh start|status|stop`. The macOS app is built with `scripts/macos/build-app.sh`. Server deploy without Docker (Ubuntu + systemd): `scripts/deploy.sh setup|release <ssh-host>` and `tls <ssh-host> <ip>` (`docs/DEPLOYMENT.md` §3a/§3b; nginx/systemd units live in `deploy/`). Docker Compose is the alternative (§4). `desktop/` is a separate Electron package (its own devDependencies, not part of the server runtime): a window onto the cloud console that pins the server certificate fingerprint from `desktop/server.json`.
 Other CLI subcommands (`dealer import/export`, `goal`, `run <workflow>`, `xhs-login`, `import-content`) are listed in the header of `src/cli.ts`.
 
 ## Code conventions (enforced by tsconfig / contract)
@@ -41,7 +42,7 @@ Other CLI subcommands (`dealer import/export`, `goal`, `run <workflow>`, `xhs-lo
 - AI decisions are recorded with `ctx.audit.decision(...)` and state changes with `ctx.audit.event(...)`.
 - DB entities are snake_case and map 1:1 to columns. JSON and boolean columns are converted using `TABLE_META` in `src/db/schema.ts`. Schema changes are new entries appended to `MIGRATIONS` (currently v1–v3). Never edit an existing migration.
 - Customer-facing generated text is Simplified Chinese. The UI is Chinese-first. Code and comments are English.
-- Tests use `node:test` + `node:assert/strict` with `createTestContext()` from `test/helpers/context.ts`. It gives an in-memory migrated DB and a `ManualClock` fixed at `2026-09-12T02:00:00Z` (Saturday 10:00 Shanghai).
+- Tests use `node:test` + `node:assert/strict` with `createTestContext()` from `test/helpers/context.ts`. It gives an in-memory migrated DB, a `ManualClock` fixed at `2026-09-12T02:00:00Z` (Saturday 10:00 Shanghai), and **unavailable** XHS/LLM providers unless you pass them in. Use `test/helpers/fixtures.ts` for setup: `loadDealerFixture(ctx)`, `dealerIdByKey`/`accountIdByPlatformId`, and `seedLead`/`seedOutreach`/`seedAppointment`/… for rows in a given state. The fixture keys tests refer to (`hz-bmw`, `xhs-hz-official`, corpus users like `u-hz-buyer-001`) are defined in ARCHITECTURE §9. The simulation corpus is `fixtures/xhs/simulation-corpus.json`.
 
 ## Architecture
 
@@ -51,13 +52,14 @@ Other CLI subcommands (`dealer import/export`, `goal`, `run <workflow>`, `xhs-lo
 
 **Operator** (`src/operator`): goal-parser → planner → `workflows.ts` (named daily workflows such as `lead_discovery`, `reply_processing`, `content_publishing`, `evening_analysis`) run by a resumable `workflow-engine.ts`. `scheduler.ts` triggers them in the dealer's timezone. `onboarding.ts` `requireReadyToRun` refuses goals and manual runs until the dealer has at least one active account whose QR login was verified by a live probe. Only `refresh_dealer_data` is exempt.
 
-**Lead pipeline** (ARCHITECTURE §3, §5, §10): query generation → provider search → notes and comments stored with `data_mode` provenance → prefilter → intent detection → `classifyActor` (only `BUYER` signals create leads) → scoring → `upsertLeadFromSignal` (one lead per person per group; writes provenance for every signal path) → Fleet Controller assigns exactly one owning account → outreach through the **10 ordered pre-send guards** (§6). CRM stage rules are in §4 (`WON` only from `CONTACTED` or later; `LOST` is left only via `reopenLead`).
+**Lead pipeline** (ARCHITECTURE §3, §5, §10): query generation → provider search → notes and comments stored with `data_mode` provenance → prefilter → intent detection → `classifyActor` (only `BUYER` signals create leads) → scoring → `upsertLeadFromSignal` (one lead per person per group; writes provenance for every signal path) → Fleet Controller assigns exactly one owning account → outreach through the **10 ordered pre-send guards** (§6). CRM stage rules are in §4 (`WON` only from `CONTACTED` or later; `LOST` is left only via `reopenLead`). The scoring rules in §5.1–5.3 (author roles, owners are not buyers, out-of-area cap, group matching) fix the defects F1–F5 recorded in `docs/PREVIEW_FINDINGS.md`. `test/integration/scoring-calibration.test.ts` enforces the §5 reference table, so any change to NLU or scoring must keep it passing.
 
 **XHS provider** (`src/providers/xhs`): `mcp` is live (one xiaohongshu-mcp instance/login session per managed account plus a research instance, configured by `XHS_MCP_ACCOUNTS` or `xhs_accounts.mcp_endpoint_url`), `simulation` is a labelled synthetic corpus, and `none` is unavailable. Truths the code depends on (§7):
 - DMs cannot be sent or received through any authorized API. Outreach ends at review, a human sends it and records `SENT_MANUALLY` + `sent_by`. `SENT` requires a provider-confirmed message id.
 - A logged-out session surfaces as `REQUIRES_AUTH`, never as "no results". There is no silent fallback from `mcp` to simulation. Login checks are never cached.
 - Publishing needs at least 1 image and returns no note id. Unknown outcomes are never auto-retried.
 - 聚光 lead pushes arrive through `/webhooks/juguang` (`juguang-webhook.ts`).
+- If an instance's `tools/list` shows a DM-like tool, both message capabilities become `REQUIRES_REVIEW`, never `AVAILABLE`. `src/providers/xhs/README.md` has the full live-detection rules.
 
 **LLM** (`src/providers/llm`, Anthropic) is optional. The deterministic engines must be complete without it, and LLM output is always validated: quotes must be verbatim substrings, and claims are checked against the Dealer Brain with `verifyClaims`. Dealer facts (prices, stock, offers) come only from the imported Dealer Brain.
 
