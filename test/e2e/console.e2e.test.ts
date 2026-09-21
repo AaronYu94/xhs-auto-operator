@@ -225,10 +225,11 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
       const site = await fetch(`${c.url}/`, { redirect: 'manual' });
       assert.equal(site.status, 200);
       const siteHtml = await site.text();
-      assert.match(siteHtml, /替汽车门店运营/);
+      assert.match(siteHtml, /小红书 AI 运营官/);
       assert.match(siteHtml, /href="\/login">客户登录/);
       assert.match(siteHtml, /action="\/demo-request"/);
       assert.equal((await fetch(`${c.url}/assets/site.css`)).status, 200);
+      assert.equal((await fetch(`${c.url}/assets/site.js`)).status, 200);
       const shot = siteHtml.match(/<img src="([^"]+)"/)![1]!;
       const img = await fetch(`${c.url}${shot}`);
       assert.equal(img.status, 200, 'the screenshots load without a session');
@@ -244,7 +245,7 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
       const good = await post({ name: '王经理', phone: '138 0000 1234', company: '城北汽车', accounts: '5-9 个' });
       assert.equal(good.status, 303);
       assert.equal(good.headers.get('location'), '/welcome?sent=1#demo');
-      assert.match(await (await fetch(`${c.url}/welcome?sent=1`)).text(), /收到了/);
+      assert.match(await (await fetch(`${c.url}/welcome?sent=1`)).text(), /提交成功/);
       await login(c, '值班运营', PASSWORD);
       const system = await page(c, '/system');
       assert.match(system, /官网预约/);

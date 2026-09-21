@@ -18,7 +18,7 @@ import { registerMediaRoutes } from './api/media.ts';
 import { registerPublishingRoutes } from './api/publishing.ts';
 import { registerSalesRoutes } from './api/sales.ts';
 import { registerSetupRoutes } from './api/setup.ts';
-import { CONSOLE_CSS, CONSOLE_JS, SITE_CSS } from './assets.ts';
+import { CONSOLE_CSS, CONSOLE_JS, SITE_CSS, SITE_JS } from './assets.ts';
 import { siteImage } from './site-images.ts';
 import {
   LoginLimiter,
@@ -90,6 +90,7 @@ export function buildRouter(runtime: ServerRuntime, options: ServerOptions): Rou
   router.get('/assets/app.css', () => ({ body: CONSOLE_CSS, contentType: 'text/css; charset=utf-8', cacheSeconds: 300 }), { public: true });
   router.get('/assets/app.js', () => ({ body: CONSOLE_JS, contentType: 'text/javascript; charset=utf-8', cacheSeconds: 300 }), { public: true });
   router.get('/assets/site.css', () => ({ body: SITE_CSS, contentType: 'text/css; charset=utf-8', cacheSeconds: 300 }), { public: true });
+  router.get('/assets/site.js', () => ({ body: SITE_JS, contentType: 'text/javascript; charset=utf-8', cacheSeconds: 300 }), { public: true });
   router.get(
     '/assets/site/:name',
     (rc) => {
