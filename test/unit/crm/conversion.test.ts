@@ -92,6 +92,7 @@ function lead(ctx: TestContext, s: Seed, patch: Partial<Lead> = {}): Lead {
     platform_user_id: `u-conv-${++seq}`,
     username: '看车用户',
     profile_url: null,
+    avatar_url: null,
     stage: 'CANDIDATE',
     score: 80,
     tier: 'high_intent',
@@ -288,7 +289,7 @@ describe('crm: computeNextAction', () => {
     assert.equal(computeNextAction(ctx, l), '审核私信：通过后在小红书发送');
 
     ctx.db.table('outreach').update(o.id, { status: 'APPROVED' });
-    assert.equal(computeNextAction(ctx, l), '在小红书App中发送已审核私信并标记已发送');
+    assert.equal(computeNextAction(ctx, l), '由负责账号在小红书人工发送已审核私信并登记');
     ctx.db.table('outreach').update(o.id, { capability_status: 'AVAILABLE' });
     assert.equal(computeNextAction(ctx, l), '私信已审核通过：等待系统发送');
 

@@ -235,6 +235,46 @@ describe('assignLead: exclusivity', () => {
   });
 });
 
+describe('leads belong to the store, not to an account', () => {
+  it('re-assigns a lead whose owning account was removed, instead of leaving it stuck', () => {
+    const { ctx, hz, acc } = setup();
+    const lead = makeLead(ctx, hz);
+    const i3 = acc('xhs-hz-i3');
+    const first = assignLead(ctx, lead.id, { reassign_to: i3, actor: 'operator:ops', reason: '先给 i3' });
+    assert.equal(first.assignment?.account_id, i3);
+
+    // the account leaves the fleet but keeps its row (it has history elsewhere)
+    ctx.db.table('xhs_accounts').update(i3, { removed_at: TEST_NOW, status: 'disabled' });
+    const after = assignLead(ctx, lead.id);
+    assert.ok(after.assignment, 'the lead found a new owner');
+    assert.notEqual(after.assignment?.account_id, i3);
+    assert.match(after.reason, /原负责账号已从账号矩阵移除/);
+    assert.equal(activeCount(ctx, lead.id), 1, 'exactly one active owner, as always');
+    assert.equal(events(ctx, 'lead.assignment_released', lead.id).length, 1);
+    assert.ok(ctx.db.table('leads').get(lead.id), 'the lead itself is untouched');
+  });
+
+  it('a lead contacted by an account that was removed can be taken over by another account', () => {
+    const { ctx, hz, acc } = setup();
+    const lead = makeLead(ctx, hz);
+    const i3 = acc('xhs-hz-i3');
+    const old = seedAssignment(ctx, { lead_id: lead.id, account_id: i3, active: false, released_at: TEST_NOW });
+    seedOutreach(ctx, { lead_id: lead.id, account_id: i3, assignment_id: old.id, status: 'SENT_MANUALLY' });
+    ctx.db.table('xhs_accounts').update(i3, { removed_at: TEST_NOW, status: 'disabled' });
+
+    const res = assignLead(ctx, lead.id);
+    assert.ok(res.assignment, 'a removed contact account no longer blocks the lead forever');
+    assert.notEqual(res.assignment?.account_id, i3);
+    assert.match(res.reason, /原负责账号已从账号矩阵移除/);
+    // A contact account that is merely unavailable still keeps the lead waiting for a human (unchanged rule).
+    const other = makeLead(ctx, hz, { user: 'u-paused-owner' });
+    const oldTwo = seedAssignment(ctx, { lead_id: other.id, account_id: acc('xhs-hz-sales-li'), active: false, released_at: TEST_NOW });
+    seedOutreach(ctx, { lead_id: other.id, account_id: acc('xhs-hz-sales-li'), assignment_id: oldTwo.id, status: 'SENT' });
+    ctx.db.table('xhs_accounts').update(acc('xhs-hz-sales-li'), { status: 'paused' });
+    assert.equal(assignLead(ctx, other.id).assignment, null);
+  });
+});
+
 describe('assignLead: stickiness to a previously contacting account', () => {
   it('an account that already sent outreach is the forced owner even when another account ranks higher', () => {
     const { ctx, hz, acc } = setup();

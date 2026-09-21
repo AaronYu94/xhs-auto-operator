@@ -61,6 +61,8 @@ export const XHS_CAPABILITIES = [
   'read_public_profile',
   'publish_content',
   'read_engagement',
+  /** the platform's own notification centre: comments and @, likes and collects, new followers */
+  'read_notifications',
   'receive_messages',
   'send_messages',
   /** public reply to a comment (used for engagement on our OWN notes, never cold outreach) */
@@ -382,7 +384,17 @@ export interface DealerSettings {
   /** AUTO send only allowed at or above this lead score (if policy AUTO) */
   auto_send_min_score: number;
   timezone: string; // e.g. 'Asia/Shanghai'
+  /**
+   * Where this store's salespeople actually send Xiaohongshu DMs by hand: the app / web ('app', the default) or the
+   * 专业号 customer-service workbench on pro.xiaohongshu.com ('pro'). It only changes the instructions and the link
+   * shown with a draft; neither channel has an authorized send API, so Steer never sends by itself.
+   * Optional: a dealer row saved before this setting existed simply has no value and is read as 'app'.
+   */
+  dm_channel?: DmChannel;
 }
+
+export const DM_CHANNELS = ['app', 'pro'] as const;
+export type DmChannel = (typeof DM_CHANNELS)[number];
 
 export interface ScoringWeights {
   explicit_purchase_intent: number;
@@ -410,6 +422,8 @@ export interface GoalSpec {
   location?: string;
   province?: string;
   timeframe?: { label: string; start: string; end: string };
+  /** the goal asked for buyers anywhere (全国 / 不限地区): no area restriction on leads */
+  nationwide?: boolean;
   target_leads?: number;
   notes?: string[];
 }
@@ -556,7 +570,12 @@ export interface DealerKnowledge {
 export interface VehicleSpecs {
   powertrain?: 'EV' | 'PHEV' | 'HEV' | 'ICE';
   body_type?: string;
+  /** battery-only range (CLTC 纯电续航) */
   range_km?: number;
+  /** range extender / plug-in hybrid total range on a full tank and a full battery (CLTC 综合续航) */
+  combined_range_km?: number;
+  /** motor output in kW, as the manufacturer states it (never converted to 马力 by us) */
+  motor_kw?: number;
   horsepower?: number;
   torque_nm?: number;
   zero_to_100_s?: number;
@@ -568,6 +587,22 @@ export interface VehicleSpecs {
   [k: string]: string | number | boolean | undefined;
 }
 
+/** A competitor this trim is shopped against, and how the store positions against it. */
+export interface VehicleCompetitor {
+  name: string;
+  note: string;
+}
+
+export interface VehicleFaq {
+  question: string;
+  answer: string;
+}
+
+/**
+ * One trim of one model in the store's 车型库 (Vehicle Brain) — the single source of vehicle truth for content,
+ * outreach and conversations. Everything factual (price, specs, colours, stock) comes from here and from the
+ * dealer's `inventory` / `offers` rows; the prose fields may be AI-written but are verified against those facts.
+ */
 export interface Vehicle {
   id: string;
   group_id: string;
@@ -577,12 +612,31 @@ export interface Vehicle {
   model_zh: string; // e.g. 'i3'
   trim: string; // e.g. 'eDrive35L'
   model_year: number;
-  msrp: number; // CNY
+  msrp: number; // CNY 厂商指导价
   specs: VehicleSpecs;
   highlights: string[];
   aliases: string[]; // e.g. ['35L', 'i3 35L']
   source: string;
   updated_at: string;
+  /** v9: gallery — http(s) URLs or absolute paths; the first one is the card cover */
+  images?: string[];
+  /** v9: 当前售价 (CNY) when the store sells it below MSRP; null = 按指导价 */
+  current_price?: number | null;
+  /** v9: long-form description of this trim (AI-written, fact-verified) */
+  description?: string;
+  /** v9: who this trim is for, e.g. ['第一次买电车的家庭'] */
+  target_customers?: string[];
+  /** v9: what it is cross-shopped against */
+  competitors?: VehicleCompetitor[];
+  /** v9: questions customers actually ask about this trim, with answers built from real facts */
+  faqs?: VehicleFaq[];
+  /** v9: Xiaohongshu note angles this trim supports (content material, never facts) */
+  content_angles?: string[];
+  /** v9: when the prose fields were last generated, and by what (`llm:<model>` / `human`) */
+  knowledge_generated_at?: string | null;
+  knowledge_engine?: string | null;
+  /** v9: taken out of the line-up; archived trims never appear in retrieval, content or answers */
+  archived_at?: string | null;
 }
 
 export interface Inventory {
@@ -640,8 +694,48 @@ export interface XhsAccount {
   /** v3: last live login probe time and its detail text */
   auth_checked_at?: string | null;
   auth_detail?: string | null;
+  /** v4: the account's own Xiaohongshu profile as read from its logged-in session, and when it was read */
+  platform_profile?: XhsOwnProfile | null;
+  platform_profile_at?: string | null;
+  /**
+   * v6: when this account was taken out of the fleet. The row is kept only so history (sent DMs, conversations,
+   * appointments, published notes) keeps its author; a removed account gets no work, shows nowhere in the console,
+   * and its leads were released to the store's pool. null = a live account.
+   */
+  removed_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * A managed account's own Xiaohongshu profile, read from its logged-in session (get_my_profile). Counts the web
+ * profile does not expose are null ("unknown"), never 0. Image URLs are Xiaohongshu CDN URLs (note covers are signed
+ * and expire; the next login check refreshes them).
+ */
+export interface XhsOwnProfile {
+  nickname: string | null;
+  red_id: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  ip_location: string | null;
+  follows: number | null;
+  fans: number | null;
+  liked_and_collected: number | null;
+  /** own notes visible on the profile page (the web shows the most recent ones) */
+  notes: XhsOwnNote[];
+}
+
+export interface XhsOwnNote {
+  platform_note_id: string;
+  title: string;
+  /** the token seen with this note; needed to read its body (Xiaohongshu refuses a detail read without it) */
+  xsec_token?: string | null;
+  /** https://www.xiaohongshu.com/explore/<id>?xsec_token=… when a token was seen */
+  url: string;
+  cover_url: string | null;
+  liked_count: number | null;
+  collected_count: number | null;
+  comment_count: number | null;
 }
 
 /** Account Brain persona & positioning (spec §1). One active persona per account. */
@@ -660,6 +754,91 @@ export interface AccountPersona {
   goals: { monthly_qualified_leads?: number; monthly_posts?: number; monthly_appointments?: number };
   signature_phrases: string[];
   taboo_topics: string[];
+  updated_at: string;
+}
+
+/**
+ * 账号语言风格 (Account Voice) — how THIS account writes, learned from what it has actually published.
+ *
+ * A persona is what the store decided the account should sound like; a voice profile is what it measurably sounds
+ * like. Every field here is derived from that account's own notes: the numbers from counting, the rules from those
+ * numbers, and the examples are verbatim excerpts of real notes kept as few-shot material. Two accounts never share
+ * a profile — the row is keyed by account.
+ */
+export interface VoiceMetrics {
+  sample_count: number;
+  title_chars_median: number;
+  title_chars_p25: number;
+  title_chars_p75: number;
+  /** share of titles that carry at least one emoji */
+  title_emoji_share: number;
+  body_chars_median: number;
+  sentence_chars_median: number;
+  /** share of sentences of 12 characters or fewer */
+  short_sentence_share: number;
+  paragraph_count_median: number;
+  /** median emoji per 100 characters of body */
+  emoji_per_100: number;
+  exclaim_share: number;
+  question_share: number;
+  tilde_share: number;
+  tag_count_median: number;
+  /** share of notes that end with a call to action */
+  cta_share: number;
+  /** share of notes structured as a numbered or bulleted list */
+  list_share: number;
+  first_person_share: number;
+  you_formal_share: number;
+  you_casual_share: number;
+  /** share of notes quoting a number with a unit (price, range, power…) */
+  spec_number_share: number;
+  /** share of model mentions written with the brand in front ('小鹏G6' vs 'G6') */
+  brand_prefix_share: number;
+  [k: string]: number;
+}
+
+/** One executable writing rule with the measurement or samples that produced it. */
+export interface VoiceRule {
+  rule: string;
+  basis: string;
+}
+
+/** A representative note kept as few-shot material — an excerpt of real published content, never a template. */
+export interface VoiceExample {
+  platform_note_id: string;
+  title: string;
+  excerpt: string;
+  why: string;
+}
+
+export interface VoiceVocabulary {
+  openers: string[];
+  closers: string[];
+  cta_phrases: string[];
+  tags: string[];
+  phrases: string[];
+  emojis: string[];
+}
+
+export interface AccountVoiceProfile {
+  id: string;
+  account_id: string;
+  dealer_id: string;
+  sample_count: number;
+  /** platform note ids the profile was built from */
+  sample_note_ids: string[];
+  metrics: VoiceMetrics;
+  rules: VoiceRule[];
+  vocabulary: VoiceVocabulary;
+  examples: VoiceExample[];
+  /** what this account demonstrably never does */
+  avoid: string[];
+  /** 'rules' or 'llm:<model>' — the deterministic part always runs */
+  engine: string;
+  analyzed_at: string;
+  /** publish time of the newest note in the sample, so a refresh knows whether anything is new */
+  newest_sample_at: string | null;
+  created_at: string;
   updated_at: string;
 }
 
@@ -714,6 +893,11 @@ export interface Post {
   cover_text: string;
   /** v3: image paths/URLs to publish with (xiaohongshu-mcp publish_content requires ≥1 image); DB default [] */
   images?: string[];
+  /**
+   * v8: one video note instead of an image note. Xiaohongshu's publisher takes a single LOCAL file, so this is an
+   * absolute path on the host that runs this account's xiaohongshu-mcp instance — never a URL.
+   */
+  video?: string | null;
   fact_refs: FactRef[];
   status: PostStatus;
   review: PostReview | null;
@@ -822,6 +1006,8 @@ export interface Lead {
   platform_user_id: string;
   username: string;
   profile_url: string | null;
+  /** public avatar of the person on the platform (proxied when displayed); null when never observed */
+  avatar_url: string | null;
   stage: LeadStage;
   score: number; // 0..100 (aggregate over signals)
   tier: ScoreTier;
@@ -1154,6 +1340,55 @@ export interface EngagementReply {
   updated_at: string;
 }
 
+/**
+ * Xiaohongshu's own notification centre (消息 page), mirrored per managed account.
+ *
+ * These are the platform's inbound events about our own notes and account: someone commented or @-mentioned us,
+ * liked or collected a note, or started following. Until this existed the system only saw people it had gone out
+ * and searched for; a comment on our own note is the warmest signal there is and it arrived here first.
+ */
+export const NOTIFICATION_TABS = ['mentions', 'likes', 'connections'] as const;
+export type NotificationTab = (typeof NOTIFICATION_TABS)[number];
+
+export const NOTIFICATION_KINDS = ['comment', 'mention', 'like', 'collect', 'follow', 'other'] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** NEW = nobody looked at it yet; HANDLED = replied / turned into a lead / marked done; IGNORED = deliberately skipped. */
+export const NOTIFICATION_STATUSES = ['NEW', 'HANDLED', 'IGNORED'] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
+export interface XhsNotification {
+  id: string;
+  dealer_id: string;
+  account_id: string;
+  /** the platform's own id for the notification row (unique per account) */
+  provider_notification_id: string;
+  tab: NotificationTab;
+  kind: NotificationKind;
+  /** the platform's own wording, e.g. 赞了你的笔记 / 开始关注你了 */
+  title: string;
+  occurred_at: string;
+  from_user_id: string;
+  from_nickname: string;
+  /** xsec_token seen with this user, needed to open their profile through the provider */
+  from_xsec_token: string | null;
+  comment_id: string | null;
+  comment_text: string | null;
+  /** whether our account already liked that comment (the platform's own state at fetch time) */
+  comment_liked: boolean;
+  note_id: string | null;
+  note_xsec_token: string | null;
+  note_title: string | null;
+  status: NotificationStatus;
+  /** the lead this notification produced or was attached to */
+  lead_id: string | null;
+  /** the public reply sent for it (`xhs-mcp-notify-reply:…`) */
+  reply_message_id: string | null;
+  handled_at: string | null;
+  handled_by: string | null;
+  fetched_at: string;
+}
+
 export interface OperatorReport {
   id: string;
   dealer_id: string;
@@ -1204,6 +1439,8 @@ export interface EntityMap {
   capability_snapshots: CapabilitySnapshot;
   research_briefs: ResearchBrief;
   engagement_replies: EngagementReply;
+  xhs_notifications: XhsNotification;
+  account_voice_profiles: AccountVoiceProfile;
   operator_reports: OperatorReport;
 }
 

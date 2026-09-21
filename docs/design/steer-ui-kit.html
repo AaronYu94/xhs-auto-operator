@@ -1,0 +1,1503 @@
+<!doctype html>
+<!--
+  驭客 Steer · UI kit (single-file reference for the operator console)
+
+  Porting notes for src/server (see docs/UI_DESIGN.md, CSP in src/server/http.ts):
+  - Everything is self-contained: no CDN, no web fonts, no external images (the console runs on private networks).
+  - All tokens and classes are prefixed `--st-*` / `.st-*` so they can be added to CONSOLE_CSS next to the
+    current styles and adopted page by page.
+  - The <script> at the end must move into CONSOLE_JS: the console CSP is `script-src 'self'` (no inline script).
+    It already uses only delegated `data-action` / `data-view` handlers, no inline event attributes.
+  - Icons are Feather (MIT), the same family the console already ships.
+  - The S mark is a vector approximation of docs/design/steer-logo.png; replace with the designer's exported SVG.
+  - All names, numbers, models and cities on this page are SAMPLE DATA for the kit. In the product every value
+    comes from the store's own data (CLAUDE.md: never hard-code a dealer, brand, city or account).
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>驭客 Steer 界面组件</title>
+<style>
+/* ───────────────────────── Tokens ───────────────────────── */
+:root {
+  --st-canvas: #F7F6F2;
+  --st-surface: #FFFFFF;
+  --st-surface-2: #FAF9F6;
+  --st-sunken: #F0EEE8;
+  --st-line: #E8E6E0;
+  --st-line-strong: #D5D2CA;
+
+  --st-text: #181817;
+  --st-text-2: #45443F;
+  --st-muted: #6B6A66;
+
+  --st-gold: #B69A70;          /* fills, dots, rules: never body text (2.6:1 on white) */
+  --st-gold-ink: #7D6440;      /* gold text: 5.5:1 on white */
+  --st-gold-soft: #F4EEE4;
+  --st-gold-line: #E3D6C0;
+
+  --st-ok: #37704A;   --st-ok-soft: #EAF2EC;
+  --st-warn: #9A6414; --st-warn-soft: #F8EFDF;
+  --st-bad: #A8403A;  --st-bad-soft: #F7E9E7;
+
+  --st-primary-bg: #181817;
+  --st-primary-fg: #FFFFFF;
+  --st-primary-hover: #2E2D2A;
+
+  --st-mark-a: #232322; --st-mark-b: #3A3A39; --st-mark-fold: #6E6D6A; --st-mark-end: #1E1E1D;
+
+  /* shape rule: cards 16 / hero + command bar 20 / buttons + inputs 10 / chips + badges pill / avatars circle */
+  --st-r-xl: 20px; --st-r-lg: 16px; --st-r-md: 10px; --st-r-sm: 8px; --st-r-pill: 999px;
+
+  --st-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
+  --st-font-num: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --st-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --st-ease: cubic-bezier(.2, .8, .2, 1);
+  --st-t-fast: 150ms;   /* hover, press, color */
+  --st-t-base: 200ms;   /* expand, toggle, list insert */
+  --st-t-slow: 250ms;   /* view enter */
+
+  --st-lift: 0 1px 2px rgba(24, 24, 23, .04), 0 10px 28px -14px rgba(24, 24, 23, .16);
+  --st-sidebar-w: 76px;
+  --st-rail-w: 320px;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --st-canvas: #131312; --st-surface: #1A1A18; --st-surface-2: #1F1F1D; --st-sunken: #262623;
+  --st-line: #2D2C29; --st-line-strong: #3D3C38;
+  --st-text: #EEECE6; --st-text-2: #CAC7BF; --st-muted: #9E9B93;
+  --st-gold: #C4A97F; --st-gold-ink: #D9C198; --st-gold-soft: #2A251D; --st-gold-line: #4A3F2E;
+  --st-ok: #82B794; --st-ok-soft: #1C2A21; --st-warn: #DDA85C; --st-warn-soft: #2D2518; --st-bad: #E38D85; --st-bad-soft: #2F1D1B;
+  --st-primary-bg: #EEECE6; --st-primary-fg: #1A1A18; --st-primary-hover: #D9D6CE;
+  --st-mark-a: #E9E6DF; --st-mark-b: #CFCBC2; --st-mark-fold: #9A968D; --st-mark-end: #6F6A61;
+  --st-lift: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 28px -14px rgba(0, 0, 0, .6);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --st-canvas: #131312; --st-surface: #1A1A18; --st-surface-2: #1F1F1D; --st-sunken: #262623;
+    --st-line: #2D2C29; --st-line-strong: #3D3C38;
+    --st-text: #EEECE6; --st-text-2: #CAC7BF; --st-muted: #9E9B93;
+    --st-gold: #C4A97F; --st-gold-ink: #D9C198; --st-gold-soft: #2A251D; --st-gold-line: #4A3F2E;
+    --st-ok: #82B794; --st-ok-soft: #1C2A21; --st-warn: #DDA85C; --st-warn-soft: #2D2518; --st-bad: #E38D85; --st-bad-soft: #2F1D1B;
+    --st-primary-bg: #EEECE6; --st-primary-fg: #1A1A18; --st-primary-hover: #D9D6CE;
+    --st-mark-a: #E9E6DF; --st-mark-b: #CFCBC2; --st-mark-fold: #9A968D; --st-mark-end: #6F6A61;
+    --st-lift: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 28px -14px rgba(0, 0, 0, .6);
+    color-scheme: dark;
+  }
+}
+
+/* ───────────────────────── Base ───────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--st-canvas);
+  color: var(--st-text);
+  font: 14px/1.55 var(--st-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, p, dl, dd, blockquote { margin: 0; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--st-text); outline-offset: 2px; border-radius: 6px; }
+.st-num { font-family: var(--st-font-num); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.st-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.st-icon { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.st-icon-sm { width: 14px; height: 14px; }
+
+/* ───────────────────────── Shell ───────────────────────── */
+.st-app { display: grid; grid-template-columns: var(--st-sidebar-w) 1fr; min-height: 100dvh; }
+
+.st-sidebar {
+  position: sticky; top: 0; height: 100dvh;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 18px 0 16px;
+  border-right: 1px solid var(--st-line);
+  background: var(--st-canvas);
+}
+.st-brand { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 18px; text-decoration: none; }
+.st-brand svg { width: 24px; height: 34px; }
+.st-nav { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0 8px; }
+.st-nav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 0 7px; border-radius: 12px;
+  color: var(--st-muted); text-decoration: none; font-size: 11.5px; line-height: 1.2;
+  transition: color var(--st-t-fast) var(--st-ease), background-color var(--st-t-fast) var(--st-ease);
+}
+.st-nav-item .st-nav-glyph { display: grid; place-items: center; width: 36px; height: 30px; border-radius: 10px; border: 1px solid transparent; transition: inherit; }
+.st-nav-item:hover { color: var(--st-text); }
+.st-nav-item[aria-current="page"] { color: var(--st-text); font-weight: 600; }
+.st-nav-item[aria-current="page"] .st-nav-glyph { background: var(--st-surface); border-color: var(--st-line); }
+.st-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.st-icon-btn {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  border: 1px solid transparent; background: none; color: var(--st-muted); cursor: pointer;
+  transition: color var(--st-t-fast) var(--st-ease), border-color var(--st-t-fast) var(--st-ease);
+}
+.st-icon-btn:hover { color: var(--st-text); border-color: var(--st-line); }
+.st-operator { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--st-sunken); color: var(--st-text-2); font-size: 12px; font-weight: 600; }
+
+.st-main { min-width: 0; display: flex; flex-direction: column; }
+
+/* Agent status bar */
+.st-agentbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 16px;
+  height: 56px; padding: 0 28px;
+  background: color-mix(in srgb, var(--st-canvas) 88%, transparent);
+  backdrop-filter: saturate(1.2) blur(10px);
+  -webkit-backdrop-filter: saturate(1.2) blur(10px);
+  border-bottom: 1px solid var(--st-line);
+}
+.st-agent-now { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13.5px; }
+.st-agent-text { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-agent-text b { font-weight: 600; margin-left: .25em; }
+.st-agent-text.is-swapping { animation: st-swap var(--st-t-slow) var(--st-ease); }
+.st-agent-ago { color: var(--st-muted); white-space: nowrap; }
+.st-agentbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.st-store {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
+  border: 1px solid var(--st-line); border-radius: var(--st-r-pill); background: var(--st-surface);
+  font-size: 13px; cursor: pointer;
+}
+
+/* Body grid: view + activity rail */
+.st-body { display: grid; grid-template-columns: minmax(0, 1fr) var(--st-rail-w); gap: 28px; padding: 28px; align-items: start; max-width: 1560px; width: 100%; margin: 0 auto; }
+.st-view { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.st-view[hidden] { display: none; }
+.st-view > *, .st-section > * { min-width: 0; }
+.st-view.is-entering { animation: st-enter var(--st-t-slow) var(--st-ease); }
+.st-page-head { display: flex; flex-direction: column; gap: 6px; }
+.st-page-title { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.st-page-sub { color: var(--st-muted); font-size: 13.5px; }
+.st-section { display: flex; flex-direction: column; gap: 14px; }
+.st-section-head { display: flex; align-items: baseline; gap: 12px; }
+.st-section-title { font-size: 16px; font-weight: 600; }
+.st-section-note { color: var(--st-muted); font-size: 13px; }
+.st-section-head .st-link { margin-left: auto; }
+.st-link { display: inline-flex; align-items: center; gap: 4px; color: var(--st-text-2); font-size: 13px; text-decoration: none; border-bottom: 1px solid var(--st-line-strong); line-height: 1.3; }
+.st-link:hover { color: var(--st-text); border-color: var(--st-text); }
+
+/* ───────────────────────── Primitives ───────────────────────── */
+.st-card {
+  background: var(--st-surface);
+  border: 1px solid var(--st-line);
+  border-radius: var(--st-r-lg);
+  transition: border-color var(--st-t-fast) var(--st-ease), transform var(--st-t-base) var(--st-ease), box-shadow var(--st-t-base) var(--st-ease);
+}
+.st-card.is-interactive:hover { border-color: var(--st-line-strong); transform: translateY(-1px); box-shadow: var(--st-lift); }
+
+.st-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 36px; padding: 0 14px; border-radius: var(--st-r-md);
+  border: 1px solid transparent; background: none; cursor: pointer;
+  font-size: 13.5px; font-weight: 500; white-space: nowrap; text-decoration: none;
+  transition: background-color var(--st-t-fast) var(--st-ease), border-color var(--st-t-fast) var(--st-ease), color var(--st-t-fast) var(--st-ease), transform var(--st-t-fast) var(--st-ease);
+}
+.st-btn:active:not(:disabled) { transform: translateY(1px); }
+.st-btn:disabled { opacity: .45; cursor: not-allowed; }
+.st-btn-primary { background: var(--st-primary-bg); color: var(--st-primary-fg); }
+.st-btn-primary:hover:not(:disabled) { background: var(--st-primary-hover); }
+.st-btn-secondary { border-color: var(--st-line-strong); color: var(--st-text); }
+.st-btn-secondary:hover:not(:disabled) { border-color: var(--st-text); }
+.st-btn-ghost { color: var(--st-text-2); }
+.st-btn-ghost:hover:not(:disabled) { background: var(--st-sunken); color: var(--st-text); }
+.st-btn-ai { background: var(--st-gold-soft); border-color: var(--st-gold-line); color: var(--st-gold-ink); cursor: default; }
+.st-btn-sm { height: 30px; padding: 0 11px; font-size: 12.5px; border-radius: 8px; }
+.st-btn-lg { height: 44px; padding: 0 18px; font-size: 14px; border-radius: 12px; }
+
+.st-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 9px; border-radius: var(--st-r-pill);
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+  background: var(--st-sunken); color: var(--st-text-2);
+}
+.st-badge-ok { background: var(--st-ok-soft); color: var(--st-ok); }
+.st-badge-warn { background: var(--st-warn-soft); color: var(--st-warn); }
+.st-badge-bad { background: var(--st-bad-soft); color: var(--st-bad); }
+.st-badge-gold { background: var(--st-gold-soft); color: var(--st-gold-ink); box-shadow: inset 0 0 0 1px var(--st-gold-line); }
+.st-badge-outline { background: none; box-shadow: inset 0 0 0 1px var(--st-line-strong); }
+
+/* Status dot: semantic state only */
+.st-dot { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--st-muted); }
+.st-dot-ok { background: var(--st-ok); }
+.st-dot-warn { background: var(--st-warn); }
+.st-dot-bad { background: var(--st-bad); }
+.st-dot-idle { background: none; box-shadow: inset 0 0 0 1.5px var(--st-muted); }
+.st-dot-ai { background: var(--st-gold); }
+.st-dot-ai::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  background: var(--st-gold); opacity: 0;
+  animation: st-breathe 2.4s var(--st-ease) infinite;
+}
+
+/* Evidence chip */
+.st-evidence-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.st-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px; border-radius: var(--st-r-pill);
+  border: 1px solid var(--st-line); background: var(--st-surface-2);
+  color: var(--st-text-2); font-size: 12px; white-space: nowrap; cursor: pointer;
+  transition: border-color var(--st-t-fast) var(--st-ease), color var(--st-t-fast) var(--st-ease), background-color var(--st-t-fast) var(--st-ease);
+}
+.st-chip:hover { border-color: var(--st-line-strong); color: var(--st-text); }
+.st-chip[aria-expanded="true"], .st-chip[aria-pressed="true"] { border-color: var(--st-text); color: var(--st-text); background: var(--st-surface); }
+.st-chip .st-chip-mark { width: 6px; height: 6px; border-radius: 1.5px; background: var(--st-gold); transform: rotate(45deg); }
+.st-chip .st-icon { width: 13px; height: 13px; transition: transform var(--st-t-base) var(--st-ease); }
+.st-chip[aria-expanded="true"] .st-icon-chev { transform: rotate(180deg); }
+.st-chip-static { cursor: default; }
+.st-chip-static:hover { border-color: var(--st-line); color: var(--st-text-2); }
+
+.st-reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--st-t-base) var(--st-ease); }
+.st-reveal > div { overflow: hidden; }
+.st-reveal.is-open { grid-template-rows: 1fr; }
+.st-evidence-panel { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: var(--st-surface-2); border: 1px solid var(--st-line); display: grid; gap: 12px; font-size: 13px; }
+.st-evidence-panel h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: var(--st-muted); }
+.st-factors { display: grid; gap: 6px; }
+.st-factor { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: baseline; }
+.st-factor .st-num { color: var(--st-gold-ink); font-weight: 600; }
+.st-factor q { color: var(--st-text); quotes: "「" "」"; }
+.st-source-line { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--st-muted); font-size: 12px; }
+.st-source-line a { color: var(--st-text-2); }
+
+/* Quote: verbatim source text, never paraphrased */
+.st-quote { position: relative; padding: 2px 0 2px 14px; font-size: 14px; line-height: 1.65; color: var(--st-text); }
+.st-quote::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--st-gold); }
+.st-quote-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--st-muted); }
+.st-quote-meta a { color: var(--st-text-2); text-decoration: none; border-bottom: 1px solid var(--st-line-strong); }
+
+/* Avatar */
+.st-avatar {
+  position: relative; display: grid; place-items: center; flex: none;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--st-sunken); color: var(--st-text-2); font-weight: 600; font-size: 14px;
+}
+.st-avatar-sm { width: 28px; height: 28px; font-size: 11.5px; }
+.st-avatar-lg { width: 56px; height: 56px; font-size: 17px; }
+.st-avatar-xl { width: 64px; height: 64px; font-size: 19px; }
+.st-avatar .st-dot { position: absolute; right: 1px; bottom: 1px; box-shadow: 0 0 0 2px var(--st-surface); }
+.st-avatar .st-dot-idle { background: var(--st-surface); box-shadow: 0 0 0 2px var(--st-surface), inset 0 0 0 1.5px var(--st-muted); }
+.st-avatar.is-working { box-shadow: 0 0 0 2px var(--st-surface), 0 0 0 3.5px var(--st-gold); }
+.st-tint-1 { background: #E9E6DF; color: #3B3A37; }
+.st-tint-2 { background: #181817; color: #F4F2EC; }
+.st-tint-3 { background: #EFE7DA; color: #5E4B30; }
+.st-tint-4 { background: #E1E3DE; color: #3A3F39; }
+.st-tint-5 { background: #F0EEE9; color: #4A4843; }
+:root[data-theme="dark"] .st-tint-2 { background: #EEECE6; color: #1A1A18; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .st-tint-2 { background: #EEECE6; color: #1A1A18; } }
+
+/* Inputs */
+.st-field { display: grid; gap: 6px; }
+.st-label { font-size: 12.5px; font-weight: 500; color: var(--st-text-2); }
+.st-help { font-size: 12px; color: var(--st-muted); }
+.st-error { font-size: 12px; color: var(--st-bad); }
+.st-input {
+  height: 40px; padding: 0 12px; border-radius: var(--st-r-md);
+  border: 1px solid var(--st-line-strong); background: var(--st-surface); color: var(--st-text);
+  transition: border-color var(--st-t-fast) var(--st-ease), box-shadow var(--st-t-fast) var(--st-ease);
+}
+.st-input::placeholder { color: var(--st-muted); }
+.st-input:focus { outline: none; border-color: var(--st-text); box-shadow: 0 0 0 3px var(--st-sunken); }
+.st-input.is-invalid { border-color: var(--st-bad); }
+
+/* ───────────────────────── Today: agent hero ───────────────────────── */
+.st-hero { border-radius: var(--st-r-xl); padding: 28px 28px 0; overflow: hidden; }
+.st-hero-top { display: flex; flex-direction: column; gap: 8px; }
+.st-hero-date { color: var(--st-muted); font-size: 13px; }
+.st-hero-title { font-size: 30px; line-height: 1.25; font-weight: 600; letter-spacing: -.015em; text-wrap: balance; }
+.st-hero-lede { max-width: 62ch; color: var(--st-text-2); font-size: 15px; }
+.st-hero-lede .st-num { color: var(--st-text); font-weight: 600; }
+
+.st-flow { margin: 18px -8px 0; }
+.st-flow svg { display: block; width: 100%; height: auto; overflow: visible; }
+.st-flow .lane { fill: none; stroke: var(--st-line); stroke-width: 1; }
+.st-flow .spine { fill: none; stroke: var(--st-line-strong); stroke-width: 1.5; }
+.st-flow .spine-out { fill: none; stroke: var(--st-gold); stroke-width: 1.5; }
+.st-flow .p-in { fill: var(--st-muted); }
+.st-flow .p-out { fill: var(--st-gold); }
+.st-flow .node { fill: var(--st-surface); stroke: var(--st-line-strong); }
+.st-flow .node-halo { fill: var(--st-gold); opacity: 0; transform-box: fill-box; transform-origin: center; animation: st-halo 2.4s var(--st-ease) infinite; }
+.st-flow .src-label { fill: var(--st-muted); font-size: 12px; }
+.st-flow .chip-bg { fill: var(--st-surface); stroke: var(--st-gold-line); }
+.st-flow .chip-t1 { fill: var(--st-text); font-size: 13px; font-weight: 600; }
+.st-flow .chip-t2 { fill: var(--st-muted); font-size: 11.5px; }
+.st-flow .chip-score { fill: var(--st-gold-ink); font-size: 13px; font-weight: 600; font-family: var(--st-font-num); }
+.st-flow .static { display: none; }
+
+.st-stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 6px -28px 0; border-top: 1px solid var(--st-line); }
+.st-stage { padding: 14px 20px 16px; display: grid; gap: 2px; }
+.st-stage + .st-stage { border-left: 1px solid var(--st-line); }
+.st-stage-num { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.st-stage-label { font-size: 12.5px; color: var(--st-muted); }
+.st-stage.is-final .st-stage-num { color: var(--st-gold-ink); }
+
+/* Command bar */
+.st-command { padding: 22px 28px 26px; margin: 0 -28px; background: var(--st-surface-2); border-top: 1px solid var(--st-line); }
+.st-command form { display: grid; gap: 10px; }
+.st-command-box {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 60px; padding: 8px 8px 8px 18px;
+  border-radius: var(--st-r-xl); border: 1px solid var(--st-line-strong); background: var(--st-surface);
+  transition: border-color var(--st-t-fast) var(--st-ease), box-shadow var(--st-t-base) var(--st-ease);
+}
+.st-command-box:focus-within { border-color: var(--st-text); box-shadow: 0 0 0 4px var(--st-sunken); }
+.st-command-box svg.st-mark { width: 16px; height: 22px; flex: none; }
+.st-command-input { flex: 1; min-width: 0; border: 0; background: none; font-size: 16px; padding: 10px 0; }
+.st-command-input:focus { outline: none; }
+.st-command-input::placeholder { color: var(--st-muted); }
+.st-suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+.st-plan { margin-top: 4px; }
+.st-plan-card { margin-top: 12px; padding: 16px 18px; border-radius: var(--st-r-lg); background: var(--st-surface); border: 1px solid var(--st-line); display: grid; gap: 14px; }
+.st-plan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.st-plan-head strong { font-size: 14px; margin-right: 4px; }
+.st-plan-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.st-plan-steps li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; color: var(--st-muted); transition: color var(--st-t-base) var(--st-ease); }
+.st-plan-steps li .st-step-mark { width: 8px; height: 8px; margin-left: 5px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--st-line-strong); }
+.st-plan-steps li.is-running { color: var(--st-text); }
+.st-plan-steps li.is-running .st-step-mark { background: var(--st-gold); box-shadow: none; }
+.st-plan-steps li.is-done { color: var(--st-text-2); }
+.st-plan-steps li.is-done .st-step-mark { background: var(--st-text); box-shadow: none; }
+.st-plan-steps .st-step-state { font-size: 12px; }
+.st-plan-steps li.is-running .st-step-state { color: var(--st-gold-ink); }
+.st-plan-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.st-plan-foot .st-help { margin-left: auto; }
+
+/* Needs-you bento */
+.st-bento { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 16px; }
+.st-tile { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.st-tile-leads { grid-row: span 3; }
+.st-tile-head { display: flex; align-items: baseline; gap: 10px; }
+.st-tile-title { font-size: 14px; font-weight: 600; }
+.st-tile-count { margin-left: auto; font-size: 32px; font-weight: 600; line-height: 1; }
+.st-tile-delta { font-size: 12.5px; color: var(--st-muted); }
+.st-tile-delta b { color: var(--st-text); font-weight: 600; }
+.st-tile-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+.st-mini-lead { display: grid; grid-template-columns: 48px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--st-line); }
+.st-mini-score { font-size: 26px; font-weight: 600; line-height: 1.1; }
+.st-mini-score small { display: block; font-family: var(--st-font); font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--st-muted); }
+.st-mini-body { display: grid; gap: 4px; min-width: 0; }
+.st-mini-line { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; color: var(--st-text-2); }
+.st-mini-line strong { color: var(--st-text); }
+.st-mini-quote { font-size: 13px; color: var(--st-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-reply-preview { padding: 12px 14px; border-radius: 12px; background: var(--st-surface-2); border: 1px solid var(--st-line); font-size: 13.5px; display: grid; gap: 4px; }
+.st-reply-preview span { font-size: 12px; color: var(--st-muted); }
+.st-segs { display: flex; gap: 4px; }
+.st-seg { flex: 1; height: 6px; border-radius: 3px; }
+.st-seg-done { background: var(--st-text); }
+.st-seg-review { background: var(--st-gold); }
+.st-seg-draft { box-shadow: inset 0 0 0 1.5px var(--st-line-strong); }
+.st-seg-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--st-muted); }
+.st-seg-legend b { color: var(--st-text); font-weight: 600; }
+.st-appt { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-items: baseline; font-size: 13.5px; }
+.st-appt .st-num { font-size: 18px; font-weight: 600; }
+.st-appt span { color: var(--st-muted); font-size: 12.5px; }
+
+/* Pipeline */
+.st-pipeline { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 0; }
+.st-pipe { position: relative; scroll-snap-align: start; padding: 16px 18px; display: grid; gap: 2px; }
+.st-pipe + .st-pipe::before {
+  content: ""; position: absolute; left: -5px; top: 30px; width: 10px; height: 10px;
+  border-top: 1.5px solid var(--st-line-strong); border-right: 1.5px solid var(--st-line-strong); transform: rotate(45deg);
+}
+.st-pipe-label { font-size: 12.5px; color: var(--st-muted); display: flex; align-items: center; gap: 6px; }
+.st-pipe-num { font-size: 28px; font-weight: 600; line-height: 1.2; }
+.st-pipe-delta { font-size: 12px; color: var(--st-muted); }
+.st-pipe-delta.is-up { color: var(--st-ok); }
+.st-pipe.is-won .st-pipe-num { color: var(--st-gold-ink); }
+
+/* Account fleet */
+.st-fleet { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+.st-fleet-item { padding: 18px; display: grid; gap: 10px; align-content: start; }
+.st-fleet-top { display: flex; align-items: center; gap: 12px; }
+.st-fleet .st-avatar-lg { width: 44px; height: 44px; font-size: 15px; }
+.st-fleet-name { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.st-fleet-role { font-size: 12px; color: var(--st-muted); }
+.st-fleet-state { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--st-text-2); }
+.st-fleet-task { font-size: 12.5px; color: var(--st-muted); line-height: 1.5; }
+.st-fleet-task b { color: var(--st-text); font-weight: 500; }
+.st-fleet-task.is-running b { color: var(--st-gold-ink); }
+
+/* Activity rail */
+.st-rail { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 14px; }
+.st-rail-card { padding: 18px 18px 8px; }
+.st-rail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.st-rail-head h2 { font-size: 14px; font-weight: 600; }
+.st-rail-head .st-badge { margin-left: auto; }
+.st-stream { list-style: none; margin: 0; padding: 0; position: relative; }
+.st-stream::before { content: ""; position: absolute; left: 4px; top: 10px; bottom: 16px; width: 1px; background: var(--st-line); }
+.st-event { position: relative; padding: 10px 0 12px 22px; display: grid; gap: 4px; }
+.st-event::before { content: ""; position: absolute; left: 0; top: 16px; width: 9px; height: 9px; border-radius: 50%; background: var(--st-surface); box-shadow: inset 0 0 0 1.5px var(--st-line-strong); }
+.st-event.is-latest::before { background: var(--st-gold); box-shadow: 0 0 0 3px var(--st-gold-soft); }
+.st-event.is-new { animation: st-drop var(--st-t-base) var(--st-ease); }
+.st-event-time { font-family: var(--st-font-mono); font-size: 11.5px; color: var(--st-muted); }
+.st-event-title { font-size: 13.5px; line-height: 1.5; }
+.st-event-title q { quotes: "「" "」"; color: var(--st-text-2); }
+.st-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; color: var(--st-muted); }
+.st-chain .done { color: var(--st-text-2); }
+.st-chain .now { color: var(--st-gold-ink); font-weight: 500; }
+.st-chain i { font-style: normal; color: var(--st-line-strong); }
+.st-rail-note { font-size: 12px; color: var(--st-muted); line-height: 1.6; padding: 0 4px; }
+
+/* ───────────────────────── Leads ───────────────────────── */
+.st-filterbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.st-leads { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.st-lead { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.st-lead-head { display: flex; align-items: flex-start; gap: 16px; }
+.st-score { display: grid; gap: 0; min-width: 64px; }
+.st-score-num { font-size: 40px; font-weight: 600; line-height: 1; }
+.st-score-label { font-size: 12px; color: var(--st-muted); margin-top: 4px; }
+.st-lead-who { display: grid; gap: 2px; min-width: 0; padding-top: 2px; }
+.st-lead-name { font-size: 15px; font-weight: 600; }
+.st-lead-meta { font-size: 12.5px; color: var(--st-muted); }
+.st-lead-badges { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.st-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--st-line); border: 1px solid var(--st-line); border-radius: 12px; overflow: hidden; }
+.st-facts > div { background: var(--st-surface); padding: 10px 12px; display: grid; gap: 2px; }
+.st-facts dt { font-size: 11.5px; color: var(--st-muted); }
+.st-facts dd { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-facts dd.is-unknown { color: var(--st-muted); font-weight: 400; }
+.st-lead-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--st-line); }
+.st-owner { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--st-muted); }
+.st-owner b { color: var(--st-text); font-weight: 500; }
+.st-lead-foot .st-actions { margin-left: auto; display: flex; gap: 8px; }
+.st-next { font-size: 13px; color: var(--st-text-2); }
+.st-next b { font-weight: 600; color: var(--st-text); }
+
+/* ───────────────────────── Content ───────────────────────── */
+.st-contents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.st-post { padding: 16px; display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 18px; }
+.st-cover {
+  aspect-ratio: 3 / 4; border-radius: 12px; padding: 12px; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  font-weight: 700; font-size: 17px; line-height: 1.3; letter-spacing: -.01em;
+}
+.st-cover small { font-size: 10.5px; font-weight: 500; letter-spacing: 0; opacity: .8; }
+.st-cover-ink { background: #1D1D1B; color: #F4F1EA; }
+.st-cover-sand { background: #ECE5D8; color: #2A2620; }
+.st-cover-stone { background: #DEDCD5; color: #22221F; }
+.st-cover-gold { background: linear-gradient(160deg, #D5BF9A, #9E8661); color: #1E1B16; }
+.st-post-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.st-post-acct { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--st-muted); }
+.st-post-acct .st-badge { margin-left: auto; }
+.st-post-title { font-size: 15.5px; font-weight: 600; line-height: 1.45; }
+.st-post-meta { font-size: 12.5px; color: var(--st-muted); }
+.st-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-check { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: var(--st-r-pill); font-size: 12px; background: var(--st-ok-soft); color: var(--st-ok); }
+.st-check .st-icon { width: 12px; height: 12px; stroke-width: 2.5; }
+.st-check.is-warn { background: var(--st-warn-soft); color: var(--st-warn); }
+.st-post-foot { margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* ───────────────────────── Accounts / CRM / Library ───────────────────────── */
+.st-accounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.st-account { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.st-account-top { display: flex; gap: 14px; align-items: center; }
+.st-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.st-metric { display: grid; gap: 0; }
+.st-metric .st-num { font-size: 20px; font-weight: 600; }
+.st-metric span { font-size: 12px; color: var(--st-muted); }
+.st-metric .is-unknown { color: var(--st-muted); font-weight: 400; font-family: var(--st-font); font-size: 15px; letter-spacing: 0; }
+.st-tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.st-tasks li { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; color: var(--st-text-2); }
+.st-tasks li span:last-child { font-size: 12px; color: var(--st-muted); }
+.st-tasks li.is-running span:last-child { color: var(--st-gold-ink); }
+.st-account-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--st-line); display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--st-muted); }
+.st-account-foot .st-btn { margin-left: auto; }
+
+.st-actions-list { padding: 4px 20px; }
+.st-action-row { display: grid; grid-template-columns: auto minmax(0, 1.2fr) auto minmax(0, 1.6fr) auto; gap: 16px; align-items: center; padding: 14px 0; }
+.st-action-row + .st-action-row { border-top: 1px solid var(--st-line); }
+.st-action-row .st-who { display: grid; gap: 0; min-width: 0; }
+.st-action-row .st-who b { font-weight: 600; font-size: 14px; }
+.st-action-row .st-who span { font-size: 12px; color: var(--st-muted); }
+.st-action-row .st-what { font-size: 13px; color: var(--st-text-2); }
+.st-action-row .st-what small { display: block; font-size: 12px; color: var(--st-muted); }
+
+.st-library { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.st-fact-card { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.st-fact-card h3 { font-size: 16px; font-weight: 600; }
+.st-fact-rows { display: grid; gap: 10px; }
+.st-fact-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; font-size: 13.5px; }
+.st-fact-row dt { color: var(--st-muted); font-size: 12.5px; padding-top: 1px; }
+.st-fact-row dd .st-num { font-size: 16px; font-weight: 600; }
+.st-fact-foot { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--st-muted); padding-top: 12px; border-top: 1px solid var(--st-line); }
+
+.st-empty { padding: 28px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; border-style: dashed; background: var(--st-surface-2); }
+.st-empty h3 { font-size: 15px; font-weight: 600; }
+.st-empty p { color: var(--st-muted); font-size: 13.5px; max-width: 46ch; }
+
+.st-banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; font-size: 13.5px; border: 1px solid; }
+.st-banner-warn { background: var(--st-warn-soft); border-color: color-mix(in srgb, var(--st-warn) 28%, transparent); color: var(--st-text); }
+.st-banner-bad { background: var(--st-bad-soft); border-color: color-mix(in srgb, var(--st-bad) 28%, transparent); color: var(--st-text); }
+.st-banner .st-btn { margin-left: auto; }
+.st-banner .st-icon { color: var(--st-warn); }
+.st-banner-bad .st-icon { color: var(--st-bad); }
+
+.st-skel { background: linear-gradient(90deg, var(--st-sunken) 0%, var(--st-surface-2) 50%, var(--st-sunken) 100%); background-size: 200% 100%; animation: st-shimmer 1.4s linear infinite; border-radius: 8px; }
+
+.st-toast {
+  position: fixed; left: 50%; bottom: 28px; z-index: 30;
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 12px;
+  border-radius: 12px; background: var(--st-primary-bg); color: var(--st-primary-fg);
+  font-size: 13.5px; box-shadow: var(--st-lift);
+  transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+  transition: transform var(--st-t-base) var(--st-ease), opacity var(--st-t-base) var(--st-ease);
+}
+.st-toast.is-shown { transform: translate(-50%, 0); opacity: 1; }
+.st-toast .st-dot { box-shadow: none; }
+
+/* Spec view */
+.st-spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.st-spec { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.st-spec h3 { font-size: 14px; font-weight: 600; }
+.st-spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.st-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.st-swatch { display: grid; gap: 6px; font-size: 12px; }
+.st-swatch i { display: block; height: 44px; border-radius: 10px; border: 1px solid var(--st-line); }
+.st-swatch code { font-family: var(--st-font-mono); font-size: 11.5px; color: var(--st-muted); }
+.st-type-row { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: baseline; }
+.st-type-row code { font-family: var(--st-font-mono); font-size: 11.5px; color: var(--st-muted); }
+.st-radius { display: grid; place-items: center; width: 72px; height: 56px; border: 1px solid var(--st-line-strong); background: var(--st-surface-2); font-size: 11.5px; color: var(--st-muted); font-family: var(--st-font-mono); }
+.st-motion-table { display: grid; gap: 8px; font-size: 13px; }
+.st-motion-table div { display: grid; grid-template-columns: 110px 70px 1fr; gap: 12px; }
+.st-motion-table code { font-family: var(--st-font-mono); font-size: 12px; color: var(--st-text-2); }
+.st-motion-table span { color: var(--st-muted); }
+
+/* ───────────────────────── Motion ───────────────────────── */
+@keyframes st-breathe { 0% { transform: scale(.6); opacity: .45; } 70%, 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes st-halo { 0% { transform: scale(1); opacity: .22; } 70%, 100% { transform: scale(1.5); opacity: 0; } }
+@keyframes st-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes st-swap { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes st-drop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes st-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
+  .st-flow .particles { display: none; }
+  .st-flow .static { display: inline; }
+}
+
+/* ───────────────────────── Responsive ───────────────────────── */
+@media (max-width: 1280px) {
+  .st-body { grid-template-columns: minmax(0, 1fr); }
+  .st-rail { position: static; }
+  .st-body:not([data-view="today"]) .st-rail { display: none; }
+}
+@media (max-width: 1100px) {
+  .st-leads, .st-contents, .st-library, .st-spec-grid { grid-template-columns: minmax(0, 1fr); }
+  .st-accounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .st-app { grid-template-columns: minmax(0, 1fr); }
+  .st-sidebar { position: static; height: auto; flex-direction: row; gap: 8px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--st-line); overflow-x: auto; }
+  .st-brand { margin: 0 6px 0 0; width: 32px; }
+  .st-nav { flex-direction: row; padding: 0; width: auto; }
+  .st-nav-item { flex-direction: row; gap: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .st-nav-item .st-nav-glyph { width: auto; height: auto; border: 0; background: none !important; }
+  .st-sidebar-foot { flex-direction: row; margin: 0 0 0 auto; }
+  .st-agentbar { padding: 0 16px; }
+  .st-store, .st-agentbar-right .st-badge { display: none; }
+  .st-body { padding: 20px 16px; gap: 20px; }
+  .st-bento { grid-template-columns: minmax(0, 1fr); }
+  .st-tile-leads { grid-row: auto; }
+  .st-action-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .st-action-row .st-what, .st-action-row .st-badge { grid-column: 2 / -1; }
+}
+@media (max-width: 640px) {
+  .st-hero { padding: 20px 16px 0; }
+  .st-hero-title { font-size: 24px; }
+  .st-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 6px -16px 0; }
+  .st-stage + .st-stage { border-left: 0; }
+  .st-stage:nth-child(even) { border-left: 1px solid var(--st-line); }
+  .st-stage:nth-child(n + 3) { border-top: 1px solid var(--st-line); }
+  .st-stage.is-final { grid-column: 1 / -1; border-left: 0; }
+  .st-command { margin: 0 -16px; padding: 18px 16px 20px; }
+  .st-command-btn-label { display: none; }
+  .st-accounts { grid-template-columns: minmax(0, 1fr); }
+  .st-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-post { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
+  .st-cover { font-size: 13px; padding: 9px; }
+  .st-lead-head { flex-wrap: wrap; }
+  .st-lead-badges { margin-left: 0; justify-content: flex-start; width: 100%; }
+  .st-agent-ago { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Symbols: S mark (approximation of docs/design/steer-logo.png) + Feather icons (MIT) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="st-gU" x1="250" y1="30" x2="60" y2="220" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--st-mark-a)"/><stop offset="1" style="stop-color:var(--st-mark-b)"/></linearGradient>
+    <radialGradient id="st-gF" cx="95" cy="205" r="80" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--st-mark-fold)"/><stop offset="1" style="stop-color:var(--st-mark-a)"/></radialGradient>
+    <linearGradient id="st-gL" x1="272" y1="205" x2="55" y2="355" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#D8C29F"/><stop offset=".4" stop-color="#B69A70"/><stop offset=".8" style="stop-color:var(--st-mark-b)"/><stop offset="1" style="stop-color:var(--st-mark-end)"/></linearGradient>
+  </defs>
+  <symbol id="st-mark" viewBox="28 12 256 368">
+    <path fill="url(#st-gU)" d="M234 22C256 14 274 36 265 61C261 72 253 80 243 86L101 167L56 202C38 189 28 169 31 147C34 125 46 109 63 100Z"/>
+    <path fill="url(#st-gF)" d="M106 171L212 186L108 234L58 205C50 200 44 194 40 187C52 178 78 172 106 171Z"/>
+    <path fill="url(#st-gL)" d="M213 184C247 176 276 196 279 226C281 246 272 258 257 267L86 367C64 379 44 372 42 350C40 328 48 309 66 297Z"/>
+  </symbol>
+  <symbol id="i-today" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+  <symbol id="i-leads" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-content" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+  <symbol id="i-accounts" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-crm" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-spec" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="i-enter" viewBox="0 0 24 24"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></symbol>
+</svg>
+
+<div class="st-app">
+  <aside class="st-sidebar" aria-label="主导航">
+    <a class="st-brand" href="#today" data-view-link="today" aria-label="驭客 Steer 首页"><svg class="st-mark"><use href="#st-mark"/></svg></a>
+    <nav class="st-nav">
+      <a class="st-nav-item" href="#today" data-view-link="today" aria-current="page"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-today"/></svg></span>今日</a>
+      <a class="st-nav-item" href="#leads" data-view-link="leads"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-leads"/></svg></span>线索</a>
+      <a class="st-nav-item" href="#content" data-view-link="content"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-content"/></svg></span>内容</a>
+      <a class="st-nav-item" href="#accounts" data-view-link="accounts"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-accounts"/></svg></span>账号</a>
+      <a class="st-nav-item" href="#crm" data-view-link="crm"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-crm"/></svg></span>CRM</a>
+      <a class="st-nav-item" href="#library" data-view-link="library"><span class="st-nav-glyph"><svg class="st-icon"><use href="#i-library"/></svg></span>资料库</a>
+    </nav>
+    <div class="st-sidebar-foot">
+      <a class="st-icon-btn" href="#spec" data-view-link="spec" title="组件规范" aria-label="组件规范"><svg class="st-icon"><use href="#i-spec"/></svg></a>
+      <button class="st-icon-btn" type="button" data-action="theme" title="切换深浅色" aria-label="切换深浅色"><svg class="st-icon"><use href="#i-moon"/></svg></button>
+      <span class="st-operator" title="操作人：王磊">王</span>
+    </div>
+  </aside>
+
+  <div class="st-main">
+    <header class="st-agentbar">
+      <div class="st-agent-now" aria-live="off">
+        <span class="st-dot st-dot-ai" aria-hidden="true"></span>
+        <span class="st-agent-text" data-agent-text>Steer 正在<b>分析 328 条新评论</b></span>
+        <span class="st-agent-ago">· <span data-agent-ago>12</span> 秒前</span>
+      </div>
+      <div class="st-agentbar-right">
+        <span class="st-badge st-badge-outline" title="本页所有数据均为示例">示例数据</span>
+        <button class="st-store" type="button">示例门店 <svg class="st-icon st-icon-sm"><use href="#i-chev"/></svg></button>
+        <a class="st-btn st-btn-primary st-btn-sm" href="#crm" data-view-link="crm">待你处理 <span class="st-num">7</span></a>
+      </div>
+    </header>
+
+    <div class="st-body" data-view="today">
+
+      <!-- ═════════════ 今日 ═════════════ -->
+      <main class="st-view" data-view-panel="today">
+        <section class="st-card st-hero" aria-labelledby="hero-title">
+          <div class="st-hero-top">
+            <p class="st-hero-date">9 月 19 日 周六，上午</p>
+            <h1 class="st-hero-title" id="hero-title">Steer 今天正在替你的门店做什么</h1>
+            <p class="st-hero-lede">从早上 8:30 开始，读了 <span class="st-num">1,284</span> 条公开笔记和评论，找到 <span class="st-num">23</span> 位真正在买车的人。其中 <span class="st-num">6</span> 位今天需要你处理。</p>
+          </div>
+
+          <div class="st-flow" aria-hidden="true">
+            <svg viewBox="0 0 1000 230" role="img">
+              <text class="src-label" x="0" y="22">公开笔记 412</text>
+              <text class="src-label" x="0" y="226">评论 872</text>
+              <path class="lane" id="ln0" d="M0 40 C150 40 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="lane" id="ln1" d="M0 74 C150 74 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="lane" id="ln2" d="M0 108 C150 108 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="lane" id="ln3" d="M0 142 C150 142 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="lane" id="ln4" d="M0 176 C150 176 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="lane" id="ln5" d="M0 206 C150 206 170 76 300 76 C375 76 437.5 97 500 118"/>
+              <path class="spine" d="M300 76 C375 76 437.5 97 500 118"/>
+              <path class="spine-out" id="lnOut" d="M500 118 C562.5 139 625 160 700 160 L772 160"/>
+
+              <g class="particles">
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="4.8s" begin="-0.2s" repeatCount="indefinite"><mpath href="#ln0"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="4.8s" begin="-0.2s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="5.4s" begin="-1.6s" repeatCount="indefinite"><mpath href="#ln1"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="5.4s" begin="-1.6s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="4.6s" begin="-3.1s" repeatCount="indefinite"><mpath href="#ln2"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="4.6s" begin="-3.1s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="5.1s" begin="-0.9s" repeatCount="indefinite"><mpath href="#ln3"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="5.1s" begin="-0.9s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="4.9s" begin="-2.4s" repeatCount="indefinite"><mpath href="#ln4"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="4.9s" begin="-2.4s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="5.6s" begin="-4s" repeatCount="indefinite"><mpath href="#ln5"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="5.6s" begin="-4s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="4.7s" begin="-3.7s" repeatCount="indefinite"><mpath href="#ln1"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="4.7s" begin="-3.7s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="5.3s" begin="-1.1s" repeatCount="indefinite"><mpath href="#ln4"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="5.3s" begin="-1.1s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="5s" begin="-2.8s" repeatCount="indefinite"><mpath href="#ln0"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="5s" begin="-2.8s" repeatCount="indefinite"/></circle>
+                <circle class="p-in" r="2.6" opacity="0"><animateMotion dur="4.5s" begin="-0.5s" repeatCount="indefinite"><mpath href="#ln5"/></animateMotion><animate attributeName="opacity" values="0;.6;.6;0" keyTimes="0;.12;.85;1" dur="4.5s" begin="-0.5s" repeatCount="indefinite"/></circle>
+                <circle class="p-out" r="3.4" opacity="0"><animateMotion dur="3.2s" begin="0s" repeatCount="indefinite"><mpath href="#lnOut"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.1;.88;1" dur="3.2s" begin="0s" repeatCount="indefinite"/></circle>
+                <circle class="p-out" r="3.4" opacity="0"><animateMotion dur="3.2s" begin="-1.6s" repeatCount="indefinite"><mpath href="#lnOut"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.1;.88;1" dur="3.2s" begin="-1.6s" repeatCount="indefinite"/></circle>
+              </g>
+              <g class="static">
+                <circle class="p-in" r="2.6" opacity=".5" cx="120" cy="44"/><circle class="p-in" r="2.6" opacity=".5" cx="90" cy="108"/><circle class="p-in" r="2.6" opacity=".5" cx="150" cy="170"/>
+                <circle class="p-in" r="2.6" opacity=".5" cx="260" cy="77"/><circle class="p-in" r="2.6" opacity=".5" cx="410" cy="92"/>
+                <circle class="p-out" r="3.4" cx="640" cy="155"/>
+              </g>
+
+              <circle class="node-halo" cx="500" cy="118" r="28"/>
+              <circle class="node" cx="500" cy="118" r="28"/>
+              <use href="#st-mark" x="489" y="102" width="22" height="32"/>
+
+              <rect class="chip-bg" x="776" y="134" width="222" height="52" rx="14"/>
+              <text class="chip-t1" x="794" y="156">新线索</text>
+              <text class="chip-score" x="846" y="156">意向 86</text>
+              <text class="chip-t2" x="794" y="175">杭州，BMW i3，预算 25-30 万</text>
+            </svg>
+          </div>
+
+          <div class="st-stages">
+            <div class="st-stage"><span class="st-stage-num st-num">1,284</span><span class="st-stage-label">读取公开内容</span></div>
+            <div class="st-stage"><span class="st-stage-num st-num">97</span><span class="st-stage-label">识别到购车意向</span></div>
+            <div class="st-stage"><span class="st-stage-num st-num">23</span><span class="st-stage-label">去重后是买家</span></div>
+            <div class="st-stage"><span class="st-stage-num st-num">23</span><span class="st-stage-label">已分配给账号</span></div>
+            <div class="st-stage is-final"><span class="st-stage-num st-num">9</span><span class="st-stage-label">私信草稿，等你发送</span></div>
+          </div>
+
+          <div class="st-command">
+            <form data-action="command" novalidate>
+              <label class="st-label" for="st-command-input">告诉 Steer 你今天想完成什么</label>
+              <div class="st-command-box">
+                <svg class="st-mark" aria-hidden="true"><use href="#st-mark"/></svg>
+                <input class="st-command-input" id="st-command-input" name="goal" autocomplete="off" placeholder="例如：这个月在杭州帮我找 BMW i3 潜客" />
+                <button class="st-btn st-btn-primary st-btn-lg" type="submit"><span class="st-command-btn-label">交给 Steer</span><svg class="st-icon"><use href="#i-enter"/></svg></button>
+              </div>
+              <div class="st-suggest">
+                <button class="st-chip" type="button" data-action="suggest">这个月在杭州帮我找 BMW i3 潜客</button>
+                <button class="st-chip" type="button" data-action="suggest">下周给销售号排 5 篇试驾笔记</button>
+                <button class="st-chip" type="button" data-action="suggest">整理这周还没回复的客户</button>
+              </div>
+              <p class="st-error" data-command-error hidden>先写一句你想完成的目标，例如想找哪款车的潜客。</p>
+              <div class="st-reveal st-plan" data-plan><div></div></div>
+            </form>
+          </div>
+        </section>
+
+        <section class="st-section" aria-labelledby="needs-title">
+          <div class="st-section-head"><h2 class="st-section-title" id="needs-title">今天需要你</h2><span class="st-section-note">其余的 Steer 会继续处理</span></div>
+          <div class="st-bento">
+            <article class="st-card st-tile st-tile-leads">
+              <div class="st-tile-head"><h3 class="st-tile-title">新线索</h3><span class="st-tile-count st-num">23</span></div>
+              <p class="st-tile-delta">比昨天多 <b class="st-num">6</b> 位，<b class="st-num">6</b> 位意向在 80 分以上</p>
+              <div class="st-mini-lead">
+                <div class="st-mini-score st-num">86<small>购车意向</small></div>
+                <div class="st-mini-body">
+                  <div class="st-mini-line"><strong>@鹿鸣想换车</strong><span>BMW i3</span><span>预算 25-30 万</span><span>杭州</span></div>
+                  <p class="st-mini-quote">“i3 现在落地大概多少？预算 25 到 30，杭州有现车的话下个月就想提。”</p>
+                </div>
+              </div>
+              <div class="st-mini-lead">
+                <div class="st-mini-score st-num">79<small>购车意向</small></div>
+                <div class="st-mini-body">
+                  <div class="st-mini-line"><strong>@阿澈的通勤日记</strong><span>BMW X1</span><span>预算 30 万左右</span><span>杭州余杭</span></div>
+                  <p class="st-mini-quote">“X1 和 Q3 纠结中，有没有杭州的朋友说说最近的优惠力度？”</p>
+                </div>
+              </div>
+              <div class="st-mini-lead">
+                <div class="st-mini-score st-num">74<small>购车意向</small></div>
+                <div class="st-mini-body">
+                  <div class="st-mini-line"><strong>@橙子Ada</strong><span>BMW i3</span><span>置换</span><span>绍兴</span></div>
+                  <p class="st-mini-quote">“家里旧车想置换 i3，绍兴过去杭州提车方便吗？”</p>
+                </div>
+              </div>
+              <div class="st-mini-lead">
+                <div class="st-mini-score st-num">71<small>购车意向</small></div>
+                <div class="st-mini-body">
+                  <div class="st-mini-line"><strong>@夏天想买电车</strong><span>纯电 SUV</span><span>预算 25 万内</span><span>杭州</span></div>
+                  <p class="st-mini-quote">“第一台电车，冬天续航打几折？杭州充电桩好找吗？”</p>
+                </div>
+              </div>
+              <div class="st-tile-foot"><a class="st-link" href="#leads" data-view-link="leads">查看全部线索 <svg class="st-icon st-icon-sm"><use href="#i-arrow"/></svg></a></div>
+            </article>
+
+            <article class="st-card st-tile">
+              <div class="st-tile-head"><h3 class="st-tile-title">待处理回复</h3><span class="st-tile-count st-num">5</span></div>
+              <div class="st-reply-preview">“周末能去店里试驾吗？想带家里人一起看看。”<span>@阿澈的通勤日记 回复了销售·小王，18 分钟前</span></div>
+              <div class="st-tile-foot"><span class="st-badge st-badge-gold">回复草稿已就绪</span><button class="st-btn st-btn-secondary st-btn-sm" type="button" style="margin-left:auto" data-action="toast" data-toast="已打开回复草稿（示例）">去回复</button></div>
+            </article>
+
+            <article class="st-card st-tile">
+              <div class="st-tile-head"><h3 class="st-tile-title">今日内容</h3><span class="st-tile-count st-num">4</span></div>
+              <div class="st-segs" aria-hidden="true"><span class="st-seg st-seg-done"></span><span class="st-seg st-seg-done"></span><span class="st-seg st-seg-review"></span><span class="st-seg st-seg-draft"></span></div>
+              <div class="st-seg-legend"><span>已发布 <b class="st-num">2</b></span><span>待你审核 <b class="st-num">1</b></span><span>草稿 <b class="st-num">1</b></span></div>
+              <div class="st-tile-foot"><a class="st-link" href="#content" data-view-link="content">审核 1 篇 <svg class="st-icon st-icon-sm"><use href="#i-arrow"/></svg></a></div>
+            </article>
+
+            <article class="st-card st-tile">
+              <div class="st-tile-head"><h3 class="st-tile-title">预约与成交</h3><span class="st-tile-delta" style="margin-left:auto">本周</span></div>
+              <div class="st-appt"><span class="st-num">3</span><span>预约到店</span><span class="st-num">1</span><span>成交</span></div>
+              <p class="st-help">下一个：明天 14:00，赵女士试驾 i3，销售·小王接待</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="st-section" aria-labelledby="pipe-title">
+          <div class="st-section-head"><h2 class="st-section-title" id="pipe-title">客户进度</h2><span class="st-section-note">本月，较上周变化</span><a class="st-link" href="#crm" data-view-link="crm">打开 CRM</a></div>
+          <div class="st-card">
+            <div class="st-pipeline">
+              <div class="st-pipe"><span class="st-pipe-label">发现</span><span class="st-pipe-num st-num">142</span><span class="st-pipe-delta is-up">+38</span></div>
+              <div class="st-pipe"><span class="st-pipe-label">已联系</span><span class="st-pipe-num st-num">61</span><span class="st-pipe-delta is-up">+17</span></div>
+              <div class="st-pipe"><span class="st-pipe-label">有回复</span><span class="st-pipe-num st-num">27</span><span class="st-pipe-delta is-up">+9</span></div>
+              <div class="st-pipe"><span class="st-pipe-label">合格 <span class="st-dot st-dot-ai" title="有 2 位待你确认"></span></span><span class="st-pipe-num st-num">14</span><span class="st-pipe-delta is-up">+4</span></div>
+              <div class="st-pipe"><span class="st-pipe-label">预约</span><span class="st-pipe-num st-num">8</span><span class="st-pipe-delta is-up">+3</span></div>
+              <div class="st-pipe"><span class="st-pipe-label">到店</span><span class="st-pipe-num st-num">5</span><span class="st-pipe-delta">持平</span></div>
+              <div class="st-pipe is-won"><span class="st-pipe-label">成交</span><span class="st-pipe-num st-num">2</span><span class="st-pipe-delta is-up">+1</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" aria-labelledby="fleet-title">
+          <div class="st-section-head"><h2 class="st-section-title" id="fleet-title">账号编队</h2><span class="st-section-note">5 个小红书账号，各自独立登录</span><a class="st-link" href="#accounts" data-view-link="accounts">管理账号</a></div>
+          <div class="st-fleet">
+            <article class="st-card st-fleet-item is-interactive">
+              <div class="st-fleet-top"><span class="st-avatar st-avatar-lg st-tint-2">官<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">门店官方号</div><div class="st-fleet-role">品牌与活动</div></div></div>
+              <div class="st-fleet-state">已登录</div>
+              <p class="st-fleet-task">今日 <b>1 篇笔记</b>，09:30 已发布</p>
+            </article>
+            <article class="st-card st-fleet-item is-interactive">
+              <div class="st-fleet-top"><span class="st-avatar st-avatar-lg st-tint-3 is-working">王<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">销售·小王</div><div class="st-fleet-role">i3 与电车咨询</div></div></div>
+              <div class="st-fleet-state">已登录</div>
+              <p class="st-fleet-task is-running">正在 <b>准备 4 条私信草稿</b></p>
+            </article>
+            <article class="st-card st-fleet-item is-interactive">
+              <div class="st-fleet-top"><span class="st-avatar st-avatar-lg st-tint-1">专<span class="st-dot st-dot-warn"></span></span><div><div class="st-fleet-name">车型专家</div><div class="st-fleet-role">参数与对比</div></div></div>
+              <div class="st-fleet-state">需要扫码登录</div>
+              <p class="st-fleet-task">任务已暂停，登录后继续</p>
+            </article>
+            <article class="st-card st-fleet-item is-interactive">
+              <div class="st-fleet-top"><span class="st-avatar st-avatar-lg st-tint-4">攻<span class="st-dot st-dot-idle"></span></span><div><div class="st-fleet-name">本地攻略</div><div class="st-fleet-role">杭州用车生活</div></div></div>
+              <div class="st-fleet-state">登录未检测</div>
+              <p class="st-fleet-task">今日 <b>1 篇笔记</b>，15:00 排期</p>
+            </article>
+            <article class="st-card st-fleet-item is-interactive">
+              <div class="st-fleet-top"><span class="st-avatar st-avatar-lg st-tint-5">故<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">车主故事</div><div class="st-fleet-role">提车与用车分享</div></div></div>
+              <div class="st-fleet-state">已登录</div>
+              <p class="st-fleet-task">今日 <b>2 条评论回复</b>，等你审核</p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <!-- ═════════════ 线索 ═════════════ -->
+      <main class="st-view" data-view-panel="leads" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">线索</h1><p class="st-page-sub">按购车意向排序。每一条都附着客户的原话和判断依据。</p></div>
+        <div class="st-filterbar" role="group" aria-label="筛选线索">
+          <button class="st-chip" type="button" aria-pressed="true" data-action="filter">全部 <span class="st-num">23</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">立即跟进 <span class="st-num">6</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">待联系 <span class="st-num">9</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">已回复 <span class="st-num">5</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">已预约 <span class="st-num">3</span></button>
+        </div>
+        <div class="st-leads">
+          <article class="st-card st-lead">
+            <header class="st-lead-head">
+              <div class="st-score"><span class="st-score-num st-num">86</span><span class="st-score-label">购车意向</span></div>
+              <div class="st-lead-who"><span class="st-lead-name">@鹿鸣想换车</span><span class="st-lead-meta">小红书用户，2 条相关评论</span></div>
+              <div class="st-lead-badges"><span class="st-badge st-badge-gold">立即跟进</span><span class="st-badge">待联系</span></div>
+            </header>
+            <dl class="st-facts">
+              <div><dt>意向车型</dt><dd>BMW i3</dd></div>
+              <div><dt>预算</dt><dd class="st-num">25-30 万</dd></div>
+              <div><dt>城市</dt><dd>杭州</dd></div>
+              <div><dt>购车时间</dt><dd>一个月内</dd></div>
+            </dl>
+            <div>
+              <blockquote class="st-quote">“i3 现在落地大概多少？预算 25 到 30，杭州有现车的话下个月就想提。”</blockquote>
+              <div class="st-quote-meta"><span>评论于《i3 开了半年的真实感受》</span><span>2 天前</span><a href="#leads">查看原帖</a></div>
+            </div>
+            <div>
+              <div class="st-evidence-row">
+                <button class="st-chip" type="button" aria-expanded="false" data-action="evidence"><span class="st-chip-mark"></span>判断依据 4 条<svg class="st-icon st-icon-chev"><use href="#i-chev"/></svg></button>
+                <span class="st-chip st-chip-static">来源：小红书公开评论</span>
+                <span class="st-chip st-chip-static">判定：买家</span>
+              </div>
+              <div class="st-reveal"><div>
+                <div class="st-evidence-panel">
+                  <div>
+                    <h4>为什么是 86 分</h4>
+                    <div class="st-factors">
+                      <div class="st-factor"><span class="st-num">+30</span><span>明确购买时间 <q>下个月就想提</q></span></div>
+                      <div class="st-factor"><span class="st-num">+18</span><span>主动问价 <q>落地大概多少</q></span></div>
+                      <div class="st-factor"><span class="st-num">+15</span><span>预算明确 <q>预算 25 到 30</q></span></div>
+                      <div class="st-factor"><span class="st-num">+12</span><span>城市与门店一致 <q>杭州有现车</q></span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <h4>身份判断</h4>
+                    <p>作者主页无车主标签，近 30 天没有经销商或同行内容，按买家处理。</p>
+                  </div>
+                  <div class="st-source-line"><span>原帖 <a href="#leads">xiaohongshu.com/explore/66e1a…</a></span><span>抓取于 9 月 17 日 14:02</span><span>真实数据</span></div>
+                </div>
+              </div></div>
+            </div>
+            <footer class="st-lead-foot">
+              <span class="st-owner"><span class="st-avatar st-avatar-sm st-tint-3">王</span><span>由 <b>销售·小王</b> 负责</span></span>
+              <div class="st-actions">
+                <button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="原帖将在新窗口打开（示例）">查看原帖</button>
+                <button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="私信草稿已打开，确认后请在小红书 App 发送">审核私信</button>
+              </div>
+            </footer>
+          </article>
+
+          <article class="st-card st-lead">
+            <header class="st-lead-head">
+              <div class="st-score"><span class="st-score-num st-num">79</span><span class="st-score-label">购车意向</span></div>
+              <div class="st-lead-who"><span class="st-lead-name">@阿澈的通勤日记</span><span class="st-lead-meta">小红书用户，已回复 1 次</span></div>
+              <div class="st-lead-badges"><span class="st-badge st-badge-ok">有回复</span></div>
+            </header>
+            <dl class="st-facts">
+              <div><dt>意向车型</dt><dd>BMW X1</dd></div>
+              <div><dt>预算</dt><dd class="st-num">30 万左右</dd></div>
+              <div><dt>城市</dt><dd>杭州余杭</dd></div>
+              <div><dt>购车时间</dt><dd class="is-unknown">未提及</dd></div>
+            </dl>
+            <div>
+              <blockquote class="st-quote">“X1 和 Q3 纠结中，有没有杭州的朋友说说最近的优惠力度？”</blockquote>
+              <div class="st-quote-meta"><span>笔记《30 万预算的 SUV 怎么选》</span><span>4 天前</span><a href="#leads">查看原帖</a></div>
+            </div>
+            <div class="st-evidence-row">
+              <button class="st-chip" type="button" aria-expanded="false" data-action="evidence"><span class="st-chip-mark"></span>判断依据 3 条<svg class="st-icon st-icon-chev"><use href="#i-chev"/></svg></button>
+              <span class="st-chip st-chip-static">来源：小红书公开笔记</span>
+            </div>
+            <div class="st-reveal"><div>
+              <div class="st-evidence-panel">
+                <div class="st-factors">
+                  <div class="st-factor"><span class="st-num">+22</span><span>正在比较车型 <q>X1 和 Q3 纠结中</q></span></div>
+                  <div class="st-factor"><span class="st-num">+16</span><span>关心价格 <q>优惠力度</q></span></div>
+                  <div class="st-factor"><span class="st-num">+12</span><span>城市与门店一致 <q>杭州</q></span></div>
+                </div>
+                <div class="st-source-line"><span>原帖 <a href="#leads">xiaohongshu.com/explore/66d9f…</a></span><span>真实数据</span></div>
+              </div>
+            </div></div>
+            <footer class="st-lead-foot">
+              <p class="st-next">下一步：<b>回复试驾时间</b>，回复草稿已就绪</p>
+              <div class="st-actions"><button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="已打开回复草稿（示例）">去回复</button></div>
+            </footer>
+          </article>
+
+          <article class="st-card st-lead">
+            <header class="st-lead-head">
+              <div class="st-score"><span class="st-score-num st-num">74</span><span class="st-score-label">购车意向</span></div>
+              <div class="st-lead-who"><span class="st-lead-name">@橙子Ada</span><span class="st-lead-meta">小红书用户</span></div>
+              <div class="st-lead-badges"><span class="st-badge st-badge-warn">异地，上限 75 分</span></div>
+            </header>
+            <dl class="st-facts">
+              <div><dt>意向车型</dt><dd>BMW i3</dd></div>
+              <div><dt>预算</dt><dd class="is-unknown">未提及</dd></div>
+              <div><dt>城市</dt><dd>绍兴</dd></div>
+              <div><dt>购车方式</dt><dd>置换</dd></div>
+            </dl>
+            <div>
+              <blockquote class="st-quote">“家里旧车想置换 i3，绍兴过去杭州提车方便吗？”</blockquote>
+              <div class="st-quote-meta"><span>评论于《杭州提车全流程》</span><span>1 天前</span><a href="#leads">查看原帖</a></div>
+            </div>
+            <div class="st-evidence-row">
+              <button class="st-chip" type="button" aria-expanded="false" data-action="evidence"><span class="st-chip-mark"></span>判断依据 3 条<svg class="st-icon st-icon-chev"><use href="#i-chev"/></svg></button>
+              <span class="st-chip st-chip-static">来源：小红书公开评论</span>
+            </div>
+            <div class="st-reveal"><div>
+              <div class="st-evidence-panel">
+                <div class="st-factors">
+                  <div class="st-factor"><span class="st-num">+24</span><span>置换购车 <q>旧车想置换 i3</q></span></div>
+                  <div class="st-factor"><span class="st-num">+14</span><span>询问提车 <q>过去杭州提车方便吗</q></span></div>
+                  <div class="st-factor"><span class="st-num">上限</span><span>城市不在门店服务范围，分数最高 75</span></div>
+                </div>
+              </div>
+            </div></div>
+            <footer class="st-lead-foot">
+              <span class="st-owner"><span class="st-avatar st-avatar-sm st-tint-1">专</span><span>由 <b>车型专家</b> 负责</span></span>
+              <div class="st-actions"><button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="已记录，Steer 将继续观察这位用户">先观察</button></div>
+            </footer>
+          </article>
+
+          <article class="st-card st-lead" aria-busy="true" aria-label="线索加载中">
+            <header class="st-lead-head">
+              <div class="st-score"><span class="st-skel" style="width:56px;height:40px"></span></div>
+              <div class="st-lead-who" style="gap:8px"><span class="st-skel" style="width:140px;height:14px"></span><span class="st-skel" style="width:96px;height:12px"></span></div>
+            </header>
+            <div class="st-skel" style="height:58px;border-radius:12px"></div>
+            <div style="display:grid;gap:8px"><span class="st-skel" style="height:14px"></span><span class="st-skel" style="width:70%;height:14px"></span></div>
+            <p class="st-help">Steer 正在核对这位用户的其他评论，稍后给出分数</p>
+          </article>
+        </div>
+      </main>
+
+      <!-- ═════════════ 内容 ═════════════ -->
+      <main class="st-view" data-view-panel="content" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">内容</h1><p class="st-page-sub">本周 12 篇。每篇发布前都核对事实、检查重复、检查合规。</p></div>
+        <div class="st-filterbar" role="group" aria-label="筛选内容">
+          <button class="st-chip" type="button" aria-pressed="true" data-action="filter">全部</button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">待审核 <span class="st-num">1</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">已排期 <span class="st-num">3</span></button>
+          <button class="st-chip" type="button" aria-pressed="false" data-action="filter">已发布 <span class="st-num">8</span></button>
+        </div>
+        <div class="st-contents">
+          <article class="st-card st-post is-interactive">
+            <div class="st-cover st-cover-ink"><span>i3 通勤一周<br />真实续航</span><small>门店官方号</small></div>
+            <div class="st-post-body">
+              <div class="st-post-acct"><span class="st-avatar st-avatar-sm st-tint-2">官</span>门店官方号<span class="st-badge st-badge-ok">已发布</span></div>
+              <h3 class="st-post-title">i3 通勤一周，真实续航和充电花费都在这里</h3>
+              <p class="st-post-meta">今天 09:30 发布，平台已确认</p>
+              <div class="st-checks"><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>事实</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>重复</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>合规</span></div>
+              <div class="st-post-foot"><span class="st-help">带来 3 条线索</span></div>
+            </div>
+          </article>
+          <article class="st-card st-post is-interactive">
+            <div class="st-cover st-cover-gold"><span>30 万预算<br />X1 怎么选</span><small>销售·小王</small></div>
+            <div class="st-post-body">
+              <div class="st-post-acct"><span class="st-avatar st-avatar-sm st-tint-3">王</span>销售·小王<span class="st-badge st-badge-warn">待你审核</span></div>
+              <h3 class="st-post-title">30 万预算买 X1，这三个配置差别要看清</h3>
+              <p class="st-post-meta">计划明天 12:00 发布</p>
+              <div class="st-checks"><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>事实</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>重复</span><span class="st-check is-warn"><svg class="st-icon"><use href="#i-alert"/></svg>合规 1 处待改</span></div>
+              <div class="st-post-foot"><button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="已打开审核（示例）">审核</button><button class="st-btn st-btn-ghost st-btn-sm" type="button">预览</button></div>
+            </div>
+          </article>
+          <article class="st-card st-post is-interactive">
+            <div class="st-cover st-cover-sand"><span>杭州提车<br />全流程</span><small>本地攻略</small></div>
+            <div class="st-post-body">
+              <div class="st-post-acct"><span class="st-avatar st-avatar-sm st-tint-4">攻</span>本地攻略<span class="st-badge">已排期</span></div>
+              <h3 class="st-post-title">第一次在杭州提车？从订车到上牌一篇讲清</h3>
+              <p class="st-post-meta">今天 15:00 发布</p>
+              <div class="st-checks"><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>事实</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>重复</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>合规</span></div>
+              <div class="st-post-foot"><span class="st-help">账号登录未检测，发布前会先检测</span></div>
+            </div>
+          </article>
+          <article class="st-card st-post is-interactive">
+            <div class="st-cover st-cover-stone"><span>车主说<br />半年用车</span><small>车主故事</small></div>
+            <div class="st-post-body">
+              <div class="st-post-acct"><span class="st-avatar st-avatar-sm st-tint-5">故</span>车主故事<span class="st-badge st-badge-warn">待登记链接</span></div>
+              <h3 class="st-post-title">提车半年，说说 i3 让我意外的三件事</h3>
+              <p class="st-post-meta">昨天已提交，平台未返回笔记 ID</p>
+              <div class="st-checks"><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>事实</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>重复</span><span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>合规</span></div>
+              <div class="st-post-foot"><button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="请粘贴这篇笔记的链接（示例）">登记笔记链接</button></div>
+            </div>
+          </article>
+        </div>
+      </main>
+
+      <!-- ═════════════ 账号 ═════════════ -->
+      <main class="st-view" data-view-panel="accounts" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">账号</h1><p class="st-page-sub">每个账号独立扫码登录，各自负责一类内容和一部分客户。</p></div>
+        <div class="st-banner st-banner-warn" role="status"><svg class="st-icon"><use href="#i-alert"/></svg><span>车型专家需要重新扫码登录，它负责的 3 条线索和 1 篇笔记已暂停。</span><button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="二维码已生成，请用该账号的小红书 App 扫码">扫码登录</button></div>
+        <div class="st-accounts">
+          <article class="st-card st-account">
+            <div class="st-account-top"><span class="st-avatar st-avatar-xl st-tint-2">官<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">门店官方号</div><div class="st-fleet-role">运营定位：品牌与活动</div></div></div>
+            <div class="st-metrics"><div class="st-metric"><span class="st-num">1.2 万</span><span>粉丝</span></div><div class="st-metric"><span class="st-num">18</span><span>近 30 天线索</span></div><div class="st-metric"><span class="st-num">9</span><span>近 30 天发布</span></div></div>
+            <ul class="st-tasks"><li><svg class="st-icon st-icon-sm"><use href="#i-check"/></svg>发布《i3 通勤一周》<span>09:30</span></li><li><span class="st-dot st-dot-idle" style="margin-left:4px"></span>回复 2 条评论<span>待审核</span></li></ul>
+            <div class="st-account-foot"><span class="st-dot st-dot-ok"></span>已登录，3 分钟前检测</div>
+          </article>
+          <article class="st-card st-account">
+            <div class="st-account-top"><span class="st-avatar st-avatar-xl st-tint-3 is-working">王<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">销售·小王</div><div class="st-fleet-role">运营定位：i3 与电车咨询</div></div></div>
+            <div class="st-metrics"><div class="st-metric"><span class="st-num">3,480</span><span>粉丝</span></div><div class="st-metric"><span class="st-num">27</span><span>近 30 天线索</span></div><div class="st-metric"><span class="is-unknown">未知</span><span>获赞与收藏</span></div></div>
+            <ul class="st-tasks"><li class="is-running"><span class="st-dot st-dot-ai" style="margin-left:4px"></span>准备 4 条私信草稿<span>执行中</span></li><li><svg class="st-icon st-icon-sm"><use href="#i-check"/></svg>分配 3 条新线索<span>10:12</span></li></ul>
+            <div class="st-account-foot"><span class="st-dot st-dot-ok"></span>已登录，1 分钟前检测</div>
+          </article>
+          <article class="st-card st-account">
+            <div class="st-account-top"><span class="st-avatar st-avatar-xl st-tint-1">专<span class="st-dot st-dot-warn"></span></span><div><div class="st-fleet-name">车型专家</div><div class="st-fleet-role">运营定位：参数与对比</div></div></div>
+            <div class="st-metrics"><div class="st-metric"><span class="st-num">860</span><span>粉丝</span></div><div class="st-metric"><span class="st-num">6</span><span>近 30 天线索</span></div><div class="st-metric"><span class="st-num">4</span><span>近 30 天发布</span></div></div>
+            <ul class="st-tasks"><li><span class="st-dot st-dot-warn" style="margin-left:4px"></span>3 条线索跟进<span>已暂停</span></li></ul>
+            <div class="st-account-foot"><span class="st-dot st-dot-warn"></span>需要扫码登录<button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="二维码已生成，请用该账号的小红书 App 扫码"><svg class="st-icon st-icon-sm"><use href="#i-qr"/></svg>扫码</button></div>
+          </article>
+          <article class="st-card st-account">
+            <div class="st-account-top"><span class="st-avatar st-avatar-xl st-tint-4">攻<span class="st-dot st-dot-idle"></span></span><div><div class="st-fleet-name">本地攻略</div><div class="st-fleet-role">运营定位：杭州用车生活</div></div></div>
+            <div class="st-metrics"><div class="st-metric"><span class="is-unknown">未知</span><span>粉丝</span></div><div class="st-metric"><span class="st-num">2</span><span>近 30 天线索</span></div><div class="st-metric"><span class="st-num">3</span><span>近 30 天发布</span></div></div>
+            <ul class="st-tasks"><li><span class="st-dot st-dot-idle" style="margin-left:4px"></span>发布《杭州提车全流程》<span>15:00</span></li></ul>
+            <div class="st-account-foot"><span class="st-dot st-dot-idle"></span>登录未检测<button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="正在检测登录状态（示例）">检测登录</button></div>
+          </article>
+          <article class="st-card st-account">
+            <div class="st-account-top"><span class="st-avatar st-avatar-xl st-tint-5">故<span class="st-dot st-dot-ok"></span></span><div><div class="st-fleet-name">车主故事</div><div class="st-fleet-role">运营定位：提车与用车分享</div></div></div>
+            <div class="st-metrics"><div class="st-metric"><span class="st-num">5,210</span><span>粉丝</span></div><div class="st-metric"><span class="st-num">11</span><span>近 30 天线索</span></div><div class="st-metric"><span class="st-num">7</span><span>近 30 天发布</span></div></div>
+            <ul class="st-tasks"><li><span class="st-dot st-dot-idle" style="margin-left:4px"></span>2 条评论回复草稿<span>待审核</span></li></ul>
+            <div class="st-account-foot"><span class="st-dot st-dot-ok"></span>已登录，6 分钟前检测</div>
+          </article>
+          <article class="st-card st-empty">
+            <h3>添加一个账号</h3>
+            <p>新账号需要用它自己的小红书 App 扫码登录。登录并检测通过后，Steer 才会用它发布内容或跟进客户。</p>
+            <button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="打开添加账号（示例）">添加账号</button>
+          </article>
+        </div>
+      </main>
+
+      <!-- ═════════════ CRM ═════════════ -->
+      <main class="st-view" data-view-panel="crm" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">CRM</h1><p class="st-page-sub">从发现到成交。私信由销售在小红书 App 内发送，发送后在这里登记。</p></div>
+        <div class="st-card">
+          <div class="st-pipeline">
+            <div class="st-pipe"><span class="st-pipe-label">发现</span><span class="st-pipe-num st-num">142</span><span class="st-pipe-delta is-up">+38</span></div>
+            <div class="st-pipe"><span class="st-pipe-label">已联系</span><span class="st-pipe-num st-num">61</span><span class="st-pipe-delta is-up">+17</span></div>
+            <div class="st-pipe"><span class="st-pipe-label">有回复</span><span class="st-pipe-num st-num">27</span><span class="st-pipe-delta is-up">+9</span></div>
+            <div class="st-pipe"><span class="st-pipe-label">合格</span><span class="st-pipe-num st-num">14</span><span class="st-pipe-delta is-up">+4</span></div>
+            <div class="st-pipe"><span class="st-pipe-label">预约</span><span class="st-pipe-num st-num">8</span><span class="st-pipe-delta is-up">+3</span></div>
+            <div class="st-pipe"><span class="st-pipe-label">到店</span><span class="st-pipe-num st-num">5</span><span class="st-pipe-delta">持平</span></div>
+            <div class="st-pipe is-won"><span class="st-pipe-label">成交</span><span class="st-pipe-num st-num">2</span><span class="st-pipe-delta is-up">+1</span></div>
+          </div>
+        </div>
+        <section class="st-section">
+          <div class="st-section-head"><h2 class="st-section-title">待你处理</h2><span class="st-section-note">7 件，按紧急程度排序</span></div>
+          <div class="st-card st-actions-list">
+            <div class="st-action-row"><span class="st-avatar st-tint-1">鹿</span><div class="st-who"><b>@鹿鸣想换车</b><span>意向 86，BMW i3</span></div><span class="st-badge st-badge-gold">私信待发送</span><p class="st-what">审核私信草稿，确认后在小红书 App 发送<small>草稿由 Steer 生成，已通过 10 项发送前检查</small></p><button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="私信草稿已打开，确认后请在小红书 App 发送">审核</button></div>
+            <div class="st-action-row"><span class="st-avatar st-tint-5">澈</span><div class="st-who"><b>@阿澈的通勤日记</b><span>意向 79，BMW X1</span></div><span class="st-badge st-badge-ok">有回复</span><p class="st-what">客户问周末能否试驾<small>回复草稿已就绪</small></p><button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="已打开回复草稿（示例）">去回复</button></div>
+            <div class="st-action-row"><span class="st-avatar st-tint-3">赵</span><div class="st-who"><b>赵女士</b><span>已留电话，BMW i3</span></div><span class="st-badge">预约</span><p class="st-what">明天 14:00 到店试驾<small>销售·小王接待</small></p><button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="已标记到店（示例）">标记到店</button></div>
+            <div class="st-action-row"><span class="st-avatar st-tint-4">橙</span><div class="st-who"><b>@橙子Ada</b><span>意向 74，绍兴</span></div><span class="st-badge st-badge-warn">异地</span><p class="st-what">确认是否接受异地提车客户<small>门店服务范围外，需要你决定</small></p><button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="已记录你的决定（示例）">决定</button></div>
+          </div>
+        </section>
+      </main>
+
+      <!-- ═════════════ 资料库 ═════════════ -->
+      <main class="st-view" data-view-panel="library" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">资料库</h1><p class="st-page-sub">Steer 只会引用这里的事实。价格、库存、优惠都来自你的录入，不会自己编。</p></div>
+        <div class="st-library">
+          <article class="st-card st-fact-card">
+            <h3>BMW i3 eDrive35L</h3>
+            <dl class="st-fact-rows">
+              <div class="st-fact-row"><dt>指导价</dt><dd><span class="st-num">35.39</span> 万</dd></div>
+              <div class="st-fact-row"><dt>现车</dt><dd><span class="st-num">4</span> 台，白色 2 台，灰色 2 台</dd></div>
+              <div class="st-fact-row"><dt>当前优惠</dt><dd>置换补贴 <span class="st-num">1.5</span> 万，到 9 月 30 日</dd></div>
+            </dl>
+            <div class="st-fact-foot"><span>9 月 15 日由王磊更新</span><span>本周被引用 14 次</span></div>
+          </article>
+          <article class="st-card st-fact-card">
+            <h3>BMW X1 sDrive25Li</h3>
+            <dl class="st-fact-rows">
+              <div class="st-fact-row"><dt>指导价</dt><dd><span class="st-num">30.39</span> 万</dd></div>
+              <div class="st-fact-row"><dt>现车</dt><dd><span class="st-num">2</span> 台，黑色</dd></div>
+              <div class="st-fact-row"><dt>当前优惠</dt><dd>未录入</dd></div>
+            </dl>
+            <div class="st-fact-foot"><span>9 月 12 日由王磊更新</span><span>本周被引用 6 次</span></div>
+          </article>
+          <article class="st-card st-empty">
+            <h3>还没有金融方案</h3>
+            <p>在录入之前，Steer 不会在内容、私信或回复里提到分期、首付或利率。</p>
+            <button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="打开金融方案录入（示例）">录入金融方案</button>
+          </article>
+          <article class="st-card st-empty">
+            <h3>门店信息已完整</h3>
+            <p>地址、营业时间、试驾预约方式都已录入，最近一次核对是 9 月 10 日。</p>
+          </article>
+        </div>
+      </main>
+
+      <!-- ═════════════ 组件规范 ═════════════ -->
+      <main class="st-view" data-view-panel="spec" hidden>
+        <div class="st-page-head"><h1 class="st-page-title">组件规范</h1><p class="st-page-sub">驭客 Steer 的颜色、字体、形状、按钮、标签、状态与动效。</p></div>
+        <div class="st-spec-grid">
+          <section class="st-card st-spec" style="grid-column:1 / -1">
+            <h3>颜色</h3>
+            <div class="st-swatches">
+              <div class="st-swatch"><i style="background:var(--st-canvas)"></i>背景<code>--st-canvas</code></div>
+              <div class="st-swatch"><i style="background:var(--st-surface)"></i>工作区<code>--st-surface</code></div>
+              <div class="st-swatch"><i style="background:var(--st-surface-2)"></i>浅层<code>--st-surface-2</code></div>
+              <div class="st-swatch"><i style="background:var(--st-line)"></i>边框<code>--st-line</code></div>
+              <div class="st-swatch"><i style="background:var(--st-text)"></i>主色<code>--st-text</code></div>
+              <div class="st-swatch"><i style="background:var(--st-muted)"></i>次要文字<code>--st-muted</code></div>
+              <div class="st-swatch"><i style="background:var(--st-gold)"></i>品牌金<code>--st-gold</code></div>
+              <div class="st-swatch"><i style="background:var(--st-gold-ink)"></i>金色文字<code>--st-gold-ink</code></div>
+              <div class="st-swatch"><i style="background:var(--st-ok)"></i>正常<code>--st-ok</code></div>
+              <div class="st-swatch"><i style="background:var(--st-warn)"></i>需处理<code>--st-warn</code></div>
+              <div class="st-swatch"><i style="background:var(--st-bad)"></i>异常<code>--st-bad</code></div>
+            </div>
+            <p class="st-help">品牌金只用于关键状态和 AI 执行中：线索分数的依据、立即跟进、执行中的任务、成交。正文里的金色一律用 --st-gold-ink。</p>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>字体</h3>
+            <div class="st-type-row"><code>页面标题 30</code><span style="font-size:30px;font-weight:600;letter-spacing:-.015em;line-height:1.2">今天的工作</span></div>
+            <div class="st-type-row"><code>区块标题 16</code><span style="font-size:16px;font-weight:600">今天需要你</span></div>
+            <div class="st-type-row"><code>正文 14</code><span>Steer 只引用资料库里的事实。</span></div>
+            <div class="st-type-row"><code>辅助 12.5</code><span class="st-help" style="font-size:12.5px">9 月 15 日由王磊更新</span></div>
+            <div class="st-type-row"><code>分数 40</code><span class="st-num" style="font-size:40px;font-weight:600;line-height:1">86</span></div>
+            <p class="st-help">系统字体，中文优先。数字使用等宽数字与略紧的字距（.st-num）。</p>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>形状</h3>
+            <div class="st-spec-row">
+              <span class="st-radius" style="border-radius:20px">20</span>
+              <span class="st-radius" style="border-radius:16px">16</span>
+              <span class="st-radius" style="border-radius:10px">10</span>
+              <span class="st-radius" style="border-radius:999px">pill</span>
+            </div>
+            <p class="st-help">首屏主卡片与指令栏 20，普通卡片 16，按钮与输入框 10，标签与徽章全圆角，头像为圆形。卡片基本无阴影，悬停时轻微抬升并加深边框。</p>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>按钮</h3>
+            <div class="st-spec-row">
+              <button class="st-btn st-btn-primary" type="button">审核私信</button>
+              <button class="st-btn st-btn-secondary" type="button">查看原帖</button>
+              <button class="st-btn st-btn-ghost" type="button">预览</button>
+              <span class="st-btn st-btn-ai"><span class="st-dot st-dot-ai"></span>执行中</span>
+            </div>
+            <div class="st-spec-row">
+              <button class="st-btn st-btn-primary st-btn-sm" type="button">小号</button>
+              <button class="st-btn st-btn-secondary st-btn-sm" type="button">小号次要</button>
+              <button class="st-btn st-btn-primary" type="button" disabled>不可用</button>
+            </div>
+            <p class="st-help">每个视图最多一个黑色主按钮。金色只出现在 AI 正在执行的状态上，不能点击。</p>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>标签与状态</h3>
+            <div class="st-spec-row">
+              <span class="st-badge st-badge-gold">立即跟进</span>
+              <span class="st-badge st-badge-ok">已发布</span>
+              <span class="st-badge st-badge-warn">待你审核</span>
+              <span class="st-badge st-badge-bad">发布失败</span>
+              <span class="st-badge">已排期</span>
+              <span class="st-badge st-badge-outline">示例数据</span>
+            </div>
+            <div class="st-spec-row">
+              <span class="st-fleet-state"><span class="st-dot st-dot-ok"></span>已登录</span>
+              <span class="st-fleet-state"><span class="st-dot st-dot-warn"></span>需要扫码</span>
+              <span class="st-fleet-state"><span class="st-dot st-dot-idle"></span>登录未检测</span>
+              <span class="st-fleet-state"><span class="st-dot st-dot-ai"></span>执行中</span>
+            </div>
+            <div class="st-spec-row">
+              <button class="st-chip" type="button" aria-expanded="false"><span class="st-chip-mark"></span>判断依据 4 条<svg class="st-icon st-icon-chev"><use href="#i-chev"/></svg></button>
+              <span class="st-chip st-chip-static">来源：小红书公开评论</span>
+              <span class="st-check"><svg class="st-icon"><use href="#i-check"/></svg>事实</span>
+              <span class="st-check is-warn"><svg class="st-icon"><use href="#i-alert"/></svg>合规 1 处待改</span>
+            </div>
+            <p class="st-help">状态点只表达真实状态。未经检测的状态用空心点，不画成已登录。</p>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>输入</h3>
+            <div class="st-field"><label class="st-label" for="spec-in-1">门店城市</label><input class="st-input" id="spec-in-1" placeholder="例如：杭州" /><span class="st-help">用于判断线索是否在服务范围内</span></div>
+            <div class="st-field"><label class="st-label" for="spec-in-2">现车数量</label><input class="st-input is-invalid" id="spec-in-2" value="四台" aria-invalid="true" aria-describedby="spec-in-2-err" /><span class="st-error" id="spec-in-2-err">请填写数字，例如 4</span></div>
+          </section>
+
+          <section class="st-card st-spec">
+            <h3>提示与空状态</h3>
+            <div class="st-banner st-banner-warn"><svg class="st-icon"><use href="#i-alert"/></svg><span>车型专家需要重新扫码登录</span></div>
+            <div class="st-banner st-banner-bad"><svg class="st-icon"><use href="#i-alert"/></svg><span>小红书连接中断，Steer 暂停了搜索，不会把它当成没有结果</span></div>
+            <div class="st-card st-empty" style="padding:18px"><h3>还没有线索</h3><p>给 Steer 下达一个目标，它会开始在公开笔记和评论里寻找买家。</p></div>
+            <button class="st-btn st-btn-secondary st-btn-sm" type="button" data-action="toast" data-toast="这是一条提示（示例）" style="align-self:flex-start">显示 Toast</button>
+          </section>
+
+          <section class="st-card st-spec" style="grid-column:1 / -1">
+            <h3>动效</h3>
+            <div class="st-motion-table">
+              <div><code>150ms</code><code>fast</code><span>悬停、按下、颜色变化</span></div>
+              <div><code>200ms</code><code>base</code><span>展开依据、切换、动态流插入</span></div>
+              <div><code>250ms</code><code>slow</code><span>视图进入、状态文字替换</span></div>
+              <div><code>2.4s 循环</code><code>ai</code><span>只用于 Steer 正在工作的状态点与节点</span></div>
+            </div>
+            <p class="st-help">曲线统一为 cubic-bezier(.2, .8, .2, 1)。首页信息流沿 S 形路径汇聚成一条线索，表达流动、汇聚、推进。系统开启减少动态效果时，全部动画停止，信息流改为静态。</p>
+          </section>
+        </div>
+      </main>
+
+      <!-- ═════════════ Activity rail ═════════════ -->
+      <aside class="st-rail" aria-label="Steer 动态">
+        <div class="st-card st-rail-card">
+          <div class="st-rail-head"><span class="st-dot st-dot-ai" aria-hidden="true"></span><h2>Steer 动态</h2><span class="st-badge">实时</span></div>
+          <ol class="st-stream" data-stream>
+            <li class="st-event is-latest">
+              <span class="st-event-time">10:24</span>
+              <p class="st-event-title">发现新线索 @鹿鸣想换车 <q>下个月就想提</q></p>
+              <div class="st-chain"><span class="done">发现</span><i>→</i><span class="done">去重</span><i>→</i><span class="done">分配给销售·小王</span><i>→</i><span class="done">生成私信</span><i>→</i><span class="now">等待人工发送</span></div>
+            </li>
+            <li class="st-event">
+              <span class="st-event-time">10:19</span>
+              <p class="st-event-title">合并重复线索：@阿澈的通勤日记 3 天前的评论</p>
+            </li>
+            <li class="st-event">
+              <span class="st-event-time">10:12</span>
+              <p class="st-event-title">车型专家登录已失效，暂停它的 3 条线索</p>
+            </li>
+            <li class="st-event">
+              <span class="st-event-time">09:30</span>
+              <p class="st-event-title">门店官方号发布《i3 通勤一周》，平台已确认</p>
+            </li>
+            <li class="st-event">
+              <span class="st-event-time">08:30</span>
+              <p class="st-event-title">生成今日搜索词 42 个，开始读取公开内容</p>
+            </li>
+          </ol>
+        </div>
+        <p class="st-rail-note">Steer 不会自动发送私信。所有私信由你的销售在小红书 App 内发送，发送后在 CRM 里登记。</p>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="st-toast" role="status" aria-live="polite" data-toast-el><span class="st-dot st-dot-ai"></span><span data-toast-text></span></div>
+
+<!-- Move to CONSOLE_JS when porting (the console CSP forbids inline script). -->
+<script>
+(function () {
+  'use strict';
+  var doc = document;
+  var root = doc.documentElement;
+  var body = doc.querySelector('.st-body');
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* Theme: follows the system until the user picks one. */
+  try { var saved = localStorage.getItem('st-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  function currentTheme() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  /* Views */
+  var VIEWS = ['today', 'leads', 'content', 'accounts', 'crm', 'library', 'spec'];
+  function showView(name, focus) {
+    if (VIEWS.indexOf(name) < 0) name = 'today';
+    doc.querySelectorAll('[data-view-panel]').forEach(function (panel) {
+      var on = panel.getAttribute('data-view-panel') === name;
+      panel.hidden = !on;
+      if (on) {
+        panel.classList.remove('is-entering');
+        void panel.offsetWidth;
+        panel.classList.add('is-entering');
+      }
+    });
+    doc.querySelectorAll('.st-nav-item').forEach(function (a) {
+      if (a.getAttribute('data-view-link') === name) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    body.setAttribute('data-view', name);
+    if (focus) window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+  }
+  window.addEventListener('hashchange', function () { showView(location.hash.slice(1), true); });
+  showView(location.hash.slice(1), false);
+
+  /* Toast */
+  var toastEl = doc.querySelector('[data-toast-el]');
+  var toastTimer = 0;
+  function toast(text) {
+    toastEl.querySelector('[data-toast-text]').textContent = text;
+    toastEl.classList.add('is-shown');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('is-shown'); }, 2600);
+  }
+
+  /* Command bar: parse a goal into a visible plan (sample behaviour). */
+  var planWrap = doc.querySelector('[data-plan]');
+  var planTimers = [];
+  var CITY = /(杭州|上海|北京|深圳|广州|南京|苏州|宁波|绍兴)/;
+  function field(label, value) {
+    return '<span class="st-chip st-chip-static"><span class="st-chip-mark"></span>' + label + '：' + value + '</span>';
+  }
+  function renderPlan(goal) {
+    planTimers.forEach(clearTimeout);
+    planTimers = [];
+    var city = (goal.match(CITY) || [])[1];
+    var model = (goal.match(/(i3|X1|X3|iX3|3系|5系|Model Y|汉|问界)/i) || [])[1];
+    var when = /这个月|本月/.test(goal) ? '本月' : /下周/.test(goal) ? '下周' : /这周|本周/.test(goal) ? '本周' : null;
+    var kind = /笔记|内容|发布/.test(goal) ? '内容' : /回复|客户/.test(goal) && !/找/.test(goal) ? '跟进' : '获客';
+    var steps = kind === '获客'
+      ? ['按资料库生成搜索词', '读取公开笔记和评论', '识别购车意向并去重', '分配给最合适的账号', '准备私信草稿，等你发送']
+      : kind === '内容'
+        ? ['按账号定位选题', '只用资料库事实写稿', '事实、重复、合规检查', '排期，等你审核']
+        : ['找出未回复的客户', '按意向排序', '准备回复草稿，等你确认'];
+    var html = '<div class="st-plan-card"><div class="st-plan-head"><strong>Steer 的理解</strong>' +
+      field('目标', kind) + (model ? field('车型', model) : '') + (city ? field('城市', city) : '') + (when ? field('时间', when) : '') +
+      '</div><ol class="st-plan-steps">' +
+      steps.map(function (s, i) { return '<li data-step="' + i + '"><span class="st-step-mark"></span><span>' + s + '</span><span class="st-step-state">排队</span></li>'; }).join('') +
+      '</ol><div class="st-plan-foot"><button class="st-btn st-btn-primary st-btn-sm" type="button" data-action="toast" data-toast="Steer 已开始执行（示例）">开始执行</button>' +
+      '<button class="st-btn st-btn-ghost st-btn-sm" type="button" data-action="plan-close">调整目标</button>' +
+      '<span class="st-help">只会使用资料库里的车型、价格和优惠</span></div></div>';
+    planWrap.firstElementChild.innerHTML = html;
+    planWrap.classList.add('is-open');
+    var items = planWrap.querySelectorAll('[data-step]');
+    items.forEach(function (li, i) {
+      planTimers.push(setTimeout(function () {
+        if (i > 0) { items[i - 1].className = 'is-done'; items[i - 1].querySelector('.st-step-state').textContent = '完成'; }
+        li.className = 'is-running';
+        li.querySelector('.st-step-state').textContent = '预演中';
+      }, reduceMotion ? 0 : 700 * (i + 1)));
+    });
+  }
+
+  doc.addEventListener('submit', function (e) {
+    var form = e.target.closest('[data-action="command"]');
+    if (!form) return;
+    e.preventDefault();
+    var input = form.querySelector('input[name="goal"]');
+    var err = form.querySelector('[data-command-error]');
+    var goal = input.value.trim();
+    err.hidden = goal.length > 0;
+    if (!goal) { input.focus(); return; }
+    renderPlan(goal);
+  });
+
+  /* Delegated clicks */
+  doc.addEventListener('click', function (e) {
+    var link = e.target.closest('[data-view-link]');
+    if (link) return; /* handled by hashchange */
+    var el = e.target.closest('[data-action]');
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    if (action === 'evidence') {
+      var open = el.getAttribute('aria-expanded') !== 'true';
+      el.setAttribute('aria-expanded', String(open));
+      var scope = el.closest('.st-lead') || el.parentElement.parentElement;
+      var reveal = scope.querySelector('.st-reveal');
+      if (reveal) reveal.classList.toggle('is-open', open);
+    } else if (action === 'filter') {
+      el.parentElement.querySelectorAll('[data-action="filter"]').forEach(function (c) { c.setAttribute('aria-pressed', String(c === el)); });
+    } else if (action === 'suggest') {
+      var input = doc.getElementById('st-command-input');
+      input.value = el.textContent.trim();
+      input.focus();
+    } else if (action === 'plan-close') {
+      planWrap.classList.remove('is-open');
+      doc.getElementById('st-command-input').focus();
+    } else if (action === 'theme') {
+      var next = currentTheme() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('st-theme', next); } catch (err) {}
+    } else if (action === 'toast') {
+      toast(el.getAttribute('data-toast') || '');
+    }
+  });
+
+  /* Agent status bar: what Steer is doing now (sample feed). */
+  var NOW = [
+    ['分析 328 条新评论', 12],
+    ['给 4 位新买家准备私信草稿', 3],
+    ['核对《X1 怎么选》里的价格', 8],
+    ['检测 5 个账号的登录状态', 1],
+    ['合并 2 条重复线索', 5]
+  ];
+  var agentText = doc.querySelector('[data-agent-text]');
+  var agentAgo = doc.querySelector('[data-agent-ago]');
+  var nowIdx = 0;
+  var ago = NOW[0][1];
+  setInterval(function () { ago += 1; agentAgo.textContent = String(ago); }, 1000);
+  setInterval(function () {
+    nowIdx = (nowIdx + 1) % NOW.length;
+    ago = NOW[nowIdx][1];
+    agentText.innerHTML = 'Steer 正在<b>' + NOW[nowIdx][0] + '</b>';
+    agentAgo.textContent = String(ago);
+    agentText.classList.remove('is-swapping');
+    void agentText.offsetWidth;
+    agentText.classList.add('is-swapping');
+  }, 6000);
+
+  /* Activity stream: new events enter at the top (sample feed). */
+  var FEED = [
+    '去重：@橙子Ada 与昨天的评论是同一人',
+    '为销售·小王生成私信草稿，等待人工发送',
+    '核对资料库：i3 置换补贴 1.5 万仍有效',
+    '车主故事的 2 条评论回复草稿已就绪',
+    '发现新线索 @夏天想买电车，意向 71'
+  ];
+  var stream = doc.querySelector('[data-stream]');
+  var feedIdx = 0;
+  var minute = 25;
+  setInterval(function () {
+    var li = doc.createElement('li');
+    li.className = 'st-event is-latest is-new';
+    li.innerHTML = '<span class="st-event-time">10:' + String(minute).padStart(2, '0') + '</span><p class="st-event-title"></p>';
+    li.querySelector('.st-event-title').textContent = FEED[feedIdx];
+    stream.querySelectorAll('.is-latest').forEach(function (n) { n.classList.remove('is-latest'); });
+    stream.insertBefore(li, stream.firstChild);
+    while (stream.children.length > 6) stream.removeChild(stream.lastChild);
+    feedIdx = (feedIdx + 1) % FEED.length;
+    minute = minute >= 59 ? 0 : minute + 1;
+  }, 7000);
+})();
+</script>
+</body>
+</html>

@@ -68,6 +68,7 @@ const profileOf = (userId: string, patch: Partial<XhsUserProfile> = {}): XhsUser
   platform_user_id: userId,
   nickname: '杭州小周',
   profile_url: `https://www.xiaohongshu.com/user/profile/${userId}`,
+  avatar_url: null,
   bio: '杭州打工人',
   ip_location: '浙江',
   follower_count: 10,

@@ -11,6 +11,7 @@ import { normalizeText } from '../../../core/text.ts';
 import type { Engine, Evidence, FactRef, Post, PostStatus } from '../../../core/types.ts';
 import { v } from '../../../core/validate.ts';
 import { defineSkill } from '../../registry.ts';
+import { getAccountVoice, voiceCopyCheck, voicePromptBlock } from '../account-voice/index.ts';
 import {
   BODY_MAX_CHARS,
   BODY_MIN_CHARS,
@@ -88,7 +89,7 @@ export function validateLlmDraft(
   return { accepted: issues.length === 0, issues, fact_refs: refs };
 }
 
-function llmPrompt(post: Post, rules: ComposedDraft): { system: string; prompt: string } {
+function llmPrompt(ctx: AppContext, post: Post, rules: ComposedDraft): { system: string; prompt: string } {
   const inp = rules.inputs;
   const p = inp.persona;
   const system = [
@@ -97,6 +98,14 @@ function llmPrompt(post: Post, rules: ComposedDraft): { system: string; prompt: 
     '不得出现电话、微信、二维码、外部链接或“加我”等站外引流；不得出现绝对化用语（最低价、最好、绝对、保证等）；不得计算或承诺落地价；',
     `标题不超过${TITLE_MAX_CHARS}字且包含「${inp.model_label}」；正文${BODY_MIN_CHARS}-${BODY_MAX_CHARS}字；话题标签${MIN_TAGS}-${MAX_TAGS}个（不带#）。`,
   ].join('');
+  // 车型库 material: how the store itself describes this car. It may shape the writing; it may never become a number.
+  const m = inp.material;
+  const material = [
+    m.description ? `车型介绍：${m.description.slice(0, 400)}` : '',
+    m.highlights.length > 0 ? `核心卖点：${m.highlights.join('；')}` : '',
+    m.target_customers.length > 0 ? `适合人群：${m.target_customers.join('；')}` : '',
+    m.competitors.length > 0 ? `竞品定位：${m.competitors.join('；')}` : '',
+  ].filter(Boolean);
   const prompt = [
     `账号：${inp.account.nickname}（${inp.account.account_type}），人设：${p.persona_name}，语气：${p.tone}`,
     `表达规则：${(p.voice_rules ?? []).join('；') || '无'}`,
@@ -104,6 +113,9 @@ function llmPrompt(post: Post, rules: ComposedDraft): { system: string; prompt: 
     `内容支柱：${PILLAR_LABEL[post.pillar]}，角度：${inp.angle}，车型：${inp.model_full}`,
     '已核实事实（只能原样引用）：',
     ...rules.fact_refs.map((r) => `- ${r.claim}`),
+    ...(material.length > 0 ? ['车型库素材（只用来组织表达，不得当作事实，不得从中引用任何数字）：', ...material.map((x) => `- ${x}`)] : []),
+    // 账号语言风格: how this very account writes, measured from its own published notes.
+    voicePromptBlock(getAccountVoice(ctx, post.account_id), { examples: 2 }),
     '参考初稿（可以改写结构和语气，但事实必须来自上面的列表）：',
     `标题：${rules.title}`,
     rules.body,
@@ -135,9 +147,9 @@ export async function generatePost(ctx: AppContext, postId: string): Promise<Pos
   const llm: Record<string, unknown> = { used: false };
 
   if (ctx.llm.status().status === 'AVAILABLE') {
-    const { system, prompt } = llmPrompt(post, rules);
+    const { system, prompt } = llmPrompt(ctx, post, rules);
     try {
-      const res = await ctx.llm.completeJson<unknown>({ purpose: 'post_generation', system, prompt, schema: POST_LLM_SCHEMA, max_tokens: 2000 });
+      const res = await ctx.llm.completeJson<unknown>({ purpose: 'post_generation', system, prompt, schema: POST_LLM_SCHEMA, max_tokens: 4000 });
       if (!res.ok) llm.fallback_reason = res.reason;
       else {
         const candidate = parseCandidate(res.data);
@@ -145,7 +157,12 @@ export async function generatePost(ctx: AppContext, postId: string): Promise<Pos
         else {
           const verdict = validateLlmDraft(ctx, post, rules, candidate);
           llm.model = res.model;
-          if (verdict.accepted) {
+          // Writing in the account's voice must never become republishing one of its notes.
+          const copy = voiceCopyCheck(ctx, post.account_id, `${candidate.title}\n${candidate.body}`);
+          if (copy.copied) {
+            llm.fallback_reason = 'copied_own_note';
+            llm.copied_note_id = copy.platform_note_id;
+          } else if (verdict.accepted) {
             final = { ...candidate, fact_refs: verdict.fact_refs };
             engine = 'llm+rules';
             llm.used = true;

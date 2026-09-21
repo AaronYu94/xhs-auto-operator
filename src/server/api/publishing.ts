@@ -20,6 +20,7 @@ import {
   recordPostMetrics,
   requeuePost,
   setPostImages,
+  setPostVideo,
 } from '../../skills/content/publishing/index.ts';
 import { queryString, type Router } from '../http.ts';
 import type { ServerRuntime } from '../runtime.ts';
@@ -27,6 +28,7 @@ import { dealerFromQuery, json, paging, readBody, requireDealer, requireRow } fr
 
 const dealerBody = v.object({ dealer_id: v.string({ min: 1 }) });
 const imagesBody = v.object({ images: v.array(v.string({ min: 1, max: 1000 }), { max: MAX_IMAGES }) });
+const videoBody = v.object({ video: v.optional(v.nullable(v.string({ max: 1000 }))) });
 const publishedBody = v.object({ platform_note_id: v.optional(v.nullable(v.string({ min: 1, max: 80 }))), url: v.optional(v.nullable(v.string({ min: 1, max: 1000 }))) });
 const count = v.optional(v.number({ int: true, min: 0, max: 1_000_000_000 }));
 const metricsBody = v.object({ views: count, likes: count, collects: count, comments: count, shares: count });
@@ -41,6 +43,12 @@ export function registerPublishingRoutes(router: Router, runtime: ServerRuntime)
     post(rc.params.id);
     const { images } = await readBody(rc, imagesBody);
     return json({ post: setPostImages(ctx, rc.params.id, images, rc.actor) });
+  });
+
+  router.post('/api/posts/:id/video', async (rc) => {
+    post(rc.params.id);
+    const { video } = await readBody(rc, videoBody);
+    return json({ post: setPostVideo(ctx, rc.params.id, video ?? null, rc.actor) });
   });
 
   router.post('/api/posts/publish-due', async (rc) => {

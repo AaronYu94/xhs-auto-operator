@@ -200,6 +200,11 @@ export interface LeadCard {
     post_title: string | null;
     url: string | null;
     signal_at: string | null;
+    /** the search that found this lead: query text, its search run and the workflow run it belonged to */
+    query_text: string | null;
+    search_run_id: string | null;
+    workflow_run_id: string | null;
+    searched_at: string | null;
   };
   /** id of the signal shown as original_signal (primary signal, else strongest, else latest) */
   original_signal_id: string | null;
@@ -207,7 +212,9 @@ export interface LeadCard {
   original_signal: string;
   signal_count: number;
   last_signal_at: string;
-  assigned_account: { id: string; nickname: string; account_type: AccountType } | null;
+  /** public avatar of the person (proxied when displayed); null when the platform never showed one */
+  avatar_url: string | null;
+  assigned_account: { id: string; nickname: string; account_type: AccountType; avatar_url: string | null } | null;
   stage: LeadStage;
   /** live recommended next action (CRM computeNextAction) */
   next_action: string;

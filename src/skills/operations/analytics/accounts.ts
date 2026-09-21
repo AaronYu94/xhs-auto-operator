@@ -21,7 +21,7 @@ const ATTENTION_RANK: Record<HealthState | 'NONE', number> = { RESTRICTED: 0, AT
 
 /** Accounts matching dealer/account filters (both must hold when both are given). */
 export function accountsInScope(ctx: AppContext, n: NormalizedFilters): XhsAccount[] {
-  const where: { id?: string; dealer_id?: string } = {};
+  const where: { id?: string; dealer_id?: string; removed_at: null } = { removed_at: null };
   if (n.account_id !== undefined) where.id = n.account_id;
   if (n.dealer_id !== undefined) where.dealer_id = n.dealer_id;
   return ctx.db.table('xhs_accounts').findMany(where, { orderBy: ACCOUNT_ORDER });
@@ -64,7 +64,7 @@ export function getAccountsOverview(ctx: AppContext, dealerId?: string): Account
   const id = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined;
   if (id !== undefined) getDealer(ctx, id);
 
-  const accounts = ctx.db.table('xhs_accounts').findMany(id !== undefined ? { dealer_id: id } : {}, { orderBy: ACCOUNT_ORDER });
+  const accounts = ctx.db.table('xhs_accounts').findMany(id !== undefined ? { dealer_id: id, removed_at: null } : { removed_at: null }, { orderBy: ACCOUNT_ORDER });
   return accounts.map((account) => {
     const persona = ctx.db.table('account_personas').findOne({ account_id: account.id });
     const health = getLatestHealth(ctx, account.id);

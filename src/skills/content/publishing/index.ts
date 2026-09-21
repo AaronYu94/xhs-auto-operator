@@ -18,7 +18,9 @@ import { dealerTz } from '../../operations/dealer-brain/shared.ts';
 import { defineSkill } from '../../registry.ts';
 
 export const PUBLISHING_AGENT = 'publishing-agent';
-export const NO_IMAGE_REASON = '小红书发布需要至少一张图片，请上传图片或人工发布后登记笔记链接';
+export const NO_IMAGE_REASON = '小红书发布需要至少一张图片（或一个视频文件），请上传后再发，或人工发布后登记笔记链接';
+/** Video notes: Xiaohongshu's video publisher takes exactly one local file on the instance's host. */
+export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm'] as const;
 export const UNKNOWN_OUTCOME_REASON = '发布结果未知，请到小红书账号核实，避免重复发布';
 export const DISABLED_PUBLISH_REASON = '发布审批策略为DISABLED，系统不自动发布，请人工发布后登记笔记链接';
 export const MAX_IMAGES = 18;
@@ -132,12 +134,14 @@ export async function publishDuePosts(ctx: AppContext, dealerId: string): Promis
       continue;
     }
     const images = (post.images ?? []).filter((i) => typeof i === 'string' && i.trim());
-    if (images.length === 0) {
+    const video = typeof post.video === 'string' ? post.video.trim() : '';
+    if (images.length === 0 && !video) {
       result.ready_to_publish.push(markReady(ctx, post, NO_IMAGE_REASON));
       continue;
     }
 
-    const res = await ctx.xhs.publishNote(account.id, { title: post.title, body: post.body, tags: post.tags, images });
+    // A video note is published by a different publisher and carries no images.
+    const res = await ctx.xhs.publishNote(account.id, { title: post.title, body: post.body, tags: post.tags, images, video: video || null });
     if (res.ok) {
       const updated = ctx.db.tx(() => {
         let noteId = res.data.platform_note_id;
@@ -158,7 +162,7 @@ export async function publishDuePosts(ctx: AppContext, dealerId: string): Promis
           action: 'post.published',
           entity_type: 'post',
           entity_id: post.id,
-          details: { provider: ctx.xhs.name, mode: ctx.xhs.mode, platform_note_id: noteId, url: res.data.url, images: images.length },
+          details: { provider: ctx.xhs.name, mode: ctx.xhs.mode, platform_note_id: noteId, url: res.data.url, images: images.length, video: video || null },
         });
         if (!noteId) {
           ctx.audit.event({
@@ -297,6 +301,31 @@ export function setPostImages(ctx: AppContext, postId: string, images: string[],
   return ctx.db.tx(() => {
     const updated = ctx.db.table('posts').update(postId, { images: clean });
     ctx.audit.event({ actor, action: 'post.images_updated', entity_type: 'post', entity_id: postId, details: { count: clean.length } });
+    return updated;
+  });
+}
+
+/**
+ * Attach (or clear) the video of a video note. Xiaohongshu's video publisher takes ONE local file on the host that
+ * runs the account's instance — a URL cannot be published, so it is refused here rather than at send time.
+ */
+export function setPostVideo(ctx: AppContext, postId: string, video: string | null, actor: string): Post {
+  if (!actor?.trim()) throw new ValidationError('actor', 'required');
+  const clean = typeof video === 'string' ? video.trim() : '';
+  if (clean) {
+    if (/^https?:\/\//i.test(clean)) throw new ValidationError('video', '视频必须是实例所在机器上的绝对路径，不能是链接');
+    if (!/^\/\S/.test(clean) && !/^[A-Za-z]:\\/.test(clean)) throw new ValidationError('video', '视频必须是绝对文件路径');
+    if (!VIDEO_EXTENSIONS.some((ext) => clean.toLowerCase().endsWith(ext))) {
+      throw new ValidationError('video', `视频文件后缀需为 ${VIDEO_EXTENSIONS.join(' / ')}`);
+    }
+  }
+  const post = ctx.db.table('posts').require(postId);
+  if (post.status === 'PUBLISHED' || post.status === 'REJECTED') {
+    throw new PolicyError('invalid_post_status', `状态为 ${post.status} 的内容不能修改视频`, { post_id: postId, status: post.status });
+  }
+  return ctx.db.tx(() => {
+    const updated = ctx.db.table('posts').update(postId, { video: clean || null });
+    ctx.audit.event({ actor, action: 'post.video_updated', entity_type: 'post', entity_id: postId, details: { video: clean || null } });
     return updated;
   });
 }

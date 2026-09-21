@@ -4,6 +4,7 @@ import type { AppContext } from '../../../src/app/context.ts';
 import { NotFoundError, ValidationError } from '../../../src/core/errors.ts';
 import { newId } from '../../../src/core/ids.ts';
 import type { Conversation, Lead, LeadStage, Post, PostMetrics, PostStatus, SignalSourceType } from '../../../src/core/types.ts';
+import { transitionLead } from '../../../src/skills/operations/crm/index.ts';
 import { computeFleetHealth } from '../../../src/skills/operations/account-health/index.ts';
 import {
   EXCEPTION_KINDS,
@@ -683,6 +684,14 @@ describe('analytics: getDashboard', () => {
     }
     assert.equal(d.exceptions.find((e) => e.kind === 'outreach_review')?.href, `/leads?outreach_status=READY_FOR_REVIEW&${dealerParam}`);
     assert.equal(d.outreach.outreach_ready, 3);
+
+    // a closed lead's drafts are not work: closing it removes them from the queues
+    const reviewLead = ctx.db.table('outreach').findOne({ status: 'READY_FOR_REVIEW' })?.lead_id;
+    assert.ok(reviewLead);
+    transitionLead(ctx, reviewLead, 'LOST', { reason: 'llm_screen', actor: 'test' });
+    const after = getDashboard(ctx, { dealer_id: hz });
+    assert.equal(after.exceptions.find((e) => e.kind === 'outreach_review'), undefined);
+    assert.equal(after.outreach.outreach_ready, 2);
     assert.deepEqual([d.accounts.active, d.accounts.healthy], [6, 5]);
     assert.deepEqual(d.accounts.requiring_attention, [
       { account_id: wang, nickname: '销售小王·杭州宝马', state: 'AT_RISK', issues: ['近7天有3位被联系用户明确拒绝联系，需暂停主动触达并复盘话术'] },

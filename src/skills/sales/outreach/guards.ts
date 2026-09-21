@@ -198,7 +198,7 @@ export function runSendGuards(ctx: AppContext, input: SendGuardInput): GuardResu
 
   // 10. provider capability
   if (input.capability !== 'AVAILABLE')
-    results.push(fail('provider_capability', false, `私信发送能力为 ${input.capability}：需由负责账号在小红书App中人工发送`));
+    results.push(fail('provider_capability', false, `私信发送能力为 ${input.capability}：需由负责账号在小红书人工发送`));
   else results.push(pass('provider_capability', '私信发送能力可用'));
 
   return results;

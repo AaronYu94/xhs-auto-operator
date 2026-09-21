@@ -42,7 +42,7 @@ export class DisabledLlmProvider implements LlmProvider {
   readonly name = 'none';
   private readonly reason: string;
 
-  constructor(reason = 'No LLM configured (set ANTHROPIC_API_KEY) — deterministic engines active') {
+  constructor(reason = 'No LLM configured (set OPENROUTER_API_KEY or ANTHROPIC_API_KEY): deterministic engines active') {
     this.reason = reason;
   }
 

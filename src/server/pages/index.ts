@@ -7,6 +7,7 @@ import { intelPage } from './intel.ts';
 import { leadDetailPage, leadsPage } from './leads.ts';
 import { overviewPage } from './overview.ts';
 import { setupPage } from './setup.ts';
+import { vehicleDetailPage, vehiclesPage } from './vehicles.ts';
 import type { PageEnv } from './shell.ts';
 import { runDetailPage, systemPage } from './system.ts';
 
@@ -18,6 +19,8 @@ export function registerPages(router: Router, env: PageEnv): void {
   router.get('/conversations/:id', (rc) => conversationDetailPage(env, rc));
   router.get('/content', (rc) => contentPage(env, rc));
   router.get('/content/posts/:id', (rc) => postDetailPage(env, rc));
+  router.get('/vehicles', (rc) => vehiclesPage(env, rc));
+  router.get('/vehicles/:id', (rc) => vehicleDetailPage(env, rc));
   router.get('/accounts', (rc) => accountsPage(env, rc));
   router.get('/intel', (rc) => intelPage(env, rc));
   router.get('/system', (rc) => systemPage(env, rc));

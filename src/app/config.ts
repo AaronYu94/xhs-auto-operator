@@ -37,7 +37,7 @@ export interface AppConfig {
   xhs: XhsProviderConfig;
   /** XHS_MCP_TOKEN: bearer token for account endpoints configured in the database (xhs_accounts.mcp_endpoint_url) */
   xhs_default_token: string | null;
-  /** LLM environment passed to createLlmProvider (ANTHROPIC_API_KEY, LLM_MODEL, …) */
+  /** LLM environment passed to createLlmProvider (LLM_PROVIDER, OPENROUTER_API_KEY / ANTHROPIC_API_KEY, LLM_MODEL, …) */
   llm_env: Record<string, string | undefined>;
   auth: { console_password: string | null; session_secret: string | null; cookie_secure: boolean };
   scheduler: { enabled: boolean; interval_ms: number };
@@ -125,7 +125,14 @@ export function loadConfig(env: Env): AppConfig {
   if (production && xhs.kind === 'none' && problems.every((p) => !p.startsWith('XHS'))) warnings.push(NO_PROVIDER_IN_PRODUCTION_WARNING);
 
   // ── LLM ─────────────────────────────────────────────────────────────────────
+  const llmProvider = blankToNull(env.LLM_PROVIDER)?.toLowerCase() ?? null;
+  if (llmProvider && !(['anthropic', 'openrouter', 'none'] as const).includes(llmProvider as 'none')) {
+    problems.push(`LLM_PROVIDER: 只能是 anthropic、openrouter 或 none（当前 ${llmProvider}）`);
+  }
   const llm_env: Record<string, string | undefined> = {
+    LLM_PROVIDER: env.LLM_PROVIDER,
+    OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL: env.OPENROUTER_BASE_URL,
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
     LLM_MODEL: env.LLM_MODEL,
     ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,

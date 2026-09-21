@@ -26,10 +26,10 @@ import {
   answerFact,
   extractClaims,
   getProhibitedClaims,
-  resolveVehicle,
   vehicleDisplayName,
   type FactAnswer,
 } from '../../operations/dealer-brain/index.ts';
+import { matchVehicle } from '../../operations/vehicle-brain/index.ts';
 
 export const MAX_OUTREACH_CHARS = 300;
 export const MAX_QUOTE_CHARS = 18;
@@ -245,8 +245,9 @@ export function composeOutreachMessage(ctx: AppContext, input: ComposeInput): Co
   const prohibited = getProhibitedClaims(ctx, dealer.id).map((p) => ({ phrase: p.phrase, reason: p.reason }));
   const personalization: Evidence[] = [];
 
+  // 车型库 (RAG): the trim the lead asked about, as it stands in the store's live line-up today.
   const vehicle = intent.model
-    ? resolveVehicle(ctx, dealer.group_id, { brand: intent.brand, model: intent.model, trim: intent.trim })
+    ? (matchVehicle(ctx, dealer.id, { brand: intent.brand, model: intent.model, trim: intent.trim })?.vehicle ?? null)
     : null;
   const label = vehicle ? (intent.trim ? vehicleDisplayName(vehicle) : `${vehicle.brand_zh}${vehicle.model_zh}`) : null;
   const brandZh = vehicle?.brand_zh ?? '';

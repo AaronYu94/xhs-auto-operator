@@ -40,18 +40,98 @@ XHS_MCP_TOKEN=<token>
 Alternatively leave `XHS_MCP_ACCOUNTS` empty and bind endpoints per account in the console (账号 → 实例地址), stored in
 `xhs_accounts.mcp_endpoint_url` (unique; URLs with embedded credentials are rejected — tokens only via env).
 
-## 3. Log every instance in (QR code)
+### Adding an account later, without a terminal
 
-1. Console → 账号 → the account card → **扫码登录**. The server calls `get_login_qrcode` on *that account's* instance (never
-   on another one) and shows the QR code; it is never stored or logged.
-2. Scan within ~4 minutes with the Xiaohongshu app **of that account**. Requesting a new QR code cancels the previous pending one.
-3. Click **检测登录** (`syncAccountAuth`). It calls `check_login_status` and `get_my_profile`, stores `auth_state`,
-   `auth_checked_at`, `auth_detail` and — the first time — the verified Xiaohongshu user id (`platform_user_id`, read from the
-   author of the account's own notes; accounts without any note show "用户ID未能校验").
-4. If a later check finds a different user id, or a user id already bound to another managed account, the account turns
-   `requires_auth` with `登录的小红书账号与该账号记录不一致` — log in again with the right account.
+When the console runs on the same host as the instances, give it the binary and the state dir and it starts a new
+account's instance itself:
 
-The research instance can be logged in with a dedicated research account (`startAccountLogin(ctx, null, actor)`).
+```bash
+XHS_MCP_BIN=/opt/xhs/xiaohongshu-mcp   # the same binary the fleet script uses
+XHS_MCP_DATA_DIR=/srv/xhs-mcp          # the same state dir
+XHS_MCP_TOKEN=<token>                  # AUTH_TOKEN of every instance
+# optional: XHS_MCP_BIND=127.0.0.1, XHS_MCP_BASE_PORT=18060
+```
+
+Then 账号 → 添加账号 (leave 实例地址 empty) → **启动本机实例** on the new card: the console takes the first free port
+above `XHS_MCP_BASE_PORT`, starts the instance with its own `cookies.json` under `<XHS_MCP_DATA_DIR>/<账号标识>/`, waits
+for its `/health`, and saves the address on the account. Then **扫码登录（登录窗口）** as in §3 — the instance is logged
+out until that account scans, and the console keeps showing 登录未检测 until a probe confirms it. An instance that is
+already running is reused, never duplicated; accounts pinned by `XHS_MCP_ACCOUNTS` and hosts without `XHS_MCP_BIN`
+(systemd slots, Docker, another machine) keep using `scripts/xhs-mcp-fleet.sh` and the 实例地址 field. The macOS app
+sets these three variables automatically when it finds the binary at `~/xhs-mcp-src/bin/xiaohongshu-mcp` or
+`/opt/xhs/xiaohongshu-mcp`.
+
+## 2b. Sending private messages (optional, off by default)
+
+Checked against the official docs: the **私信 / IM API is open only to approved third-party 客服服务商**, the **聚光
+Marketing API** has ads, reports and 客资 but no message sending, the **千帆 / 电商** platform is shop-scoped, and
+**pro.xiaohongshu.com** requires its own login (it does not share the instance's session). A store that is not an IM
+vendor therefore has one channel it can operate itself: the account's own logged-in session — the same one that
+already publishes notes and replies to comments.
+
+```bash
+go build -o "$XHS_MCP_DATA_DIR/.bin/xhs-dm-send" ./cmd/xhs-dm-send   # built from tools/xhs-dm-send in this repo
+XHS_DM_SENDER="$XHS_MCP_DATA_DIR/.bin/xhs-dm-send"                   # + XHS_MCP_DATA_DIR; optional XHS_DM_SEND_TIMEOUT_MS
+```
+
+Check one conversation first — this types nothing and sends nothing:
+
+```bash
+COOKIES_PATH=<instance dir>/cookies.json "$XHS_MCP_DATA_DIR/.bin/xhs-dm-send" -profile <lead profile url> -dry-run -shot /tmp/dm
+```
+
+With `XHS_DM_SENDER` set, 私信 on a lead shows 「通过平台发送」 for an approved draft on an account whose instance runs
+on this host. An outreach becomes `SENT` only when the helper read the message back in the conversation; when the
+outcome cannot be established the console says so, removes the send button for that message and asks a human to check
+Xiaohongshu and then register or cancel it — it is never sent a second time automatically. The ten pre-send guards,
+the per-account daily limit and the approval policy are unchanged.
+
+**This automates your own account, which Xiaohongshu's terms do not allow, and carries rate-limit / ban risk.** Start
+on an account you can afford to lose, keep `daily_outreach_limit` low for the first days, and watch the account's
+health and login state.
+
+## 3. Log every instance in (QR code, in a visible login window)
+
+**Xiaohongshu rejects QR logins scanned from the instance's headless browser**: the phone shows "fail to login" and the
+instance never sees the scan (observed 2026-09-19 with the current upstream build, with and without console polling).
+Upstream's own login tool (`cmd/login`) therefore opens a visible window, but it waits on one page element with
+`MustElement` and panics (`Session with given id not found`) when the page target changes right after the scan, before
+it saves the cookies. This repo ships a replacement, `tools/xhs-visible-login`: same browser binary and fingerprint seed as
+the instance (it is built against your xiaohongshu-mcp checkout), cookies watched at the browser level, success reported
+only after a fresh page sees the logged-in session. It writes the instance's `cookies.json`; the running instance loads it
+on its next call, so no restart is needed.
+
+Build it once (needs Go; `XHS_MCP_SRC` = the xiaohongshu-mcp source the instances were built from):
+
+```bash
+XHS_MCP_SRC=/opt/xhs/xiaohongshu-mcp scripts/xhs-mcp-fleet.sh build-login-helper   # → $XHS_MCP_DATA_DIR/.bin/xhs-visible-login
+```
+
+Then log each instance in **on the host where it runs** (it needs a display):
+
+- **Console (instances on the console's own host)**: set `XHS_LOGIN_HELPER=<built helper>` and
+  `XHS_MCP_DATA_DIR=<the fleet state dir>` for the console. 账号 → the account card → **扫码登录（登录窗口）** (or
+  **研究实例扫码登录（登录窗口）**) opens a Chromium window on that host; scan the QR code in it with the Xiaohongshu app
+  **of that account** and leave the window open until it closes itself. The console polls the job (one request at a
+  time) and re-checks the login when it finishes. Instance names are the directory names under the state dir:
+  `research`, or the account's 账号标识 (platform_account_id), exactly as `scripts/xhs-mcp-fleet.sh start` creates them.
+- **Terminal / other hosts**: `scripts/xhs-mcp-fleet.sh login <research|账号标识>` does the same. A server without a
+  display cannot open the window: log in on a Mac with the same helper and copy that `cookies.json` into the server
+  instance's directory (`chmod 600`).
+- The in-console QR code (**二维码（备用）**, `get_login_qrcode` on the headless instance) is kept as a fallback; its modal
+  says what to do when the phone reports a failed login. Requesting a new QR code cancels the previous pending one.
+
+After logging in, click **检测登录** (`syncAccountAuth`). It calls `check_login_status` and `get_my_profile`, stores
+`auth_state`, `auth_checked_at`, `auth_detail` and — the first time — the verified Xiaohongshu user id
+(`platform_user_id`, read from the author of the account's own notes; accounts without any note show "用户ID未能校验").
+If a later check finds a different user id, or a user id already bound to another managed account, the account turns
+`requires_auth` with `登录的小红书账号与该账号记录不一致` — log in again with the right account.
+
+While a QR code or login window is pending, status checks skip `get_my_profile` (on a logged-out instance it hangs for
+60 s); concurrent checks of one instance share a single probe.
+
+The research instance can be logged in with a dedicated research account (`startAccountLogin(ctx, null, actor)` /
+`startLoginWindow(ctx, null, actor)`).
 
 ## 4. Verify the real path
 
@@ -81,8 +161,9 @@ discovery shows "需要登录" instead of "0 posts found".
 
 ## 6. Operations
 
-- **Throughput**: every tool call launches a headless browser (5–60 s). Run one call per instance at a time; the default
-  per-call timeout is 120 s (`XHS_MCP_TIMEOUT_MS`).
+- **Throughput**: every tool call launches a headless browser (5–60 s). The provider queues tool calls per instance so
+  they never overlap (overlapping calls pile up browsers on one session, and upstream leaks the browser of a call that
+  panics); the default per-call timeout is 120 s (`XHS_MCP_TIMEOUT_MS`).
 - **Security**: the instances hold live account sessions. Keep them on localhost or a private network behind a firewall,
   always set `AUTH_TOKEN`, keep cookie files `600` / directories `700`, never expose `/mcp` publicly, never commit cookies.
 - **Health**: `scripts/xhs-mcp-fleet.sh status`; the console's 系统 page shows per-capability snapshots.

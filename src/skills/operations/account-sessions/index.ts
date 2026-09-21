@@ -6,6 +6,10 @@
  *   assumed: a logged-out instance becomes requires_auth, an unreachable one unknown, a session logged into a different
  *   Xiaohongshu user than recorded requires_auth with an explicit mismatch detail.
  * - startAccountLogin: request a login QR code on the account's instance for the console (the image is returned, never stored).
+ * - startLoginWindow / loginWindowStatus: log a local instance in through a visible browser window on this host
+ *   (Xiaohongshu rejects QR logins scanned from the instance's headless browser); only when the provider offers it.
+ * - startAccountInstance: on a host that runs the instances itself, start this account's own instance (own port, own
+ *   cookies file) and bind the account to it — the console equivalent of scripts/xhs-mcp-fleet.sh start <id>.
  * - setAccountEndpoint: bind an account to its xiaohongshu-mcp instance URL (unique; no credentials in URLs — tokens only via env).
  * - getAccountSessions: read model for the console (endpoint source, login state, latest capability per capability).
  *
@@ -24,10 +28,11 @@ import {
   type CapabilityStatus,
   type XhsAccount,
   type XhsCapability,
+  type XhsOwnProfile,
 } from '../../../core/types.ts';
 import { v } from '../../../core/validate.ts';
-import { normalizeEndpointUrl } from '../../../providers/xhs/mcp-provider.ts';
-import type { CapabilityReport, XhsEndpointInfo, XhsLoginQrcode } from '../../../providers/xhs/types.ts';
+import { normalizeEndpointUrl, portOfUrl } from '../../../providers/xhs/mcp-provider.ts';
+import type { CapabilityReport, XhsEndpointInfo, XhsLocalInstance, XhsLoginQrcode, XhsVisibleLoginJob } from '../../../providers/xhs/types.ts';
 import { defineSkill } from '../../registry.ts';
 
 export const ACCOUNT_SESSIONS_AGENT = 'fleet-controller';
@@ -67,7 +72,10 @@ export interface AccountSessionRow {
   auth_detail: string | null;
   platform_user_id: string | null;
   capabilities: Partial<Record<XhsCapability, CapabilityView>>;
-  provider: { name: string; mode: string; login_api: boolean };
+  provider: { name: string; mode: string; login_api: boolean; login_window: boolean; local_instances: boolean };
+  /** the account's own Xiaohongshu profile from its last confirmed login check (null until then) */
+  platform_profile: XhsOwnProfile | null;
+  platform_profile_at: string | null;
 }
 
 function requireAccount(ctx: AppContext, accountId: string): XhsAccount {
@@ -105,6 +113,8 @@ export async function syncAccountAuth(ctx: AppContext, accountId: string): Promi
   let reason: string;
   let authState: AuthState;
   let platformUserId: string | null = account.platform_user_id ?? null;
+  /** only set when THIS account's own session is confirmed (never another user's profile) */
+  let profile: XhsOwnProfile | null = null;
   const applicable = Boolean(ctx.xhs.auth);
 
   if (!ctx.xhs.auth) {
@@ -142,6 +152,7 @@ export async function syncAccountAuth(ctx: AppContext, accountId: string): Promi
         status = 'AVAILABLE';
         authState = 'authenticated';
         if (verified && !platformUserId) platformUserId = verified;
+        profile = res.data.profile;
         reason = `已登录${who}（${res.data.endpoint_label}）${verified ? `，用户ID ${verified} 已校验` : '，用户ID未能校验'}：${res.data.detail}`;
       }
     }
@@ -156,6 +167,7 @@ export async function syncAccountAuth(ctx: AppContext, accountId: string): Promi
       auth_checked_at: now,
       auth_detail: detail,
       ...(platformUserId !== (account.platform_user_id ?? null) ? { platform_user_id: platformUserId } : {}),
+      ...(profile ? { platform_profile: profile, platform_profile_at: now } : {}),
     });
     if (authState !== account.auth_state || platformUserId !== (account.platform_user_id ?? null)) {
       ctx.audit.event({
@@ -184,11 +196,23 @@ export async function syncFleetAuth(ctx: AppContext, dealerId: string): Promise<
   if (!ctx.db.table('dealers').get(dealerId)) throw new NotFoundError('dealer', dealerId);
   const accounts = ctx.db
     .table('xhs_accounts')
-    .findMany({ dealer_id: dealerId }, { orderBy: 'created_at ASC, id ASC' })
+    .findMany({ dealer_id: dealerId, removed_at: null }, { orderBy: 'created_at ASC, id ASC' })
     .filter((a) => a.status !== 'disabled');
   const out: AccountAuthSyncResult[] = [];
   for (const account of accounts) out.push(await syncAccountAuth(ctx, account.id));
   return out;
+}
+
+/** Logging in needs the account's own instance: refuse early, in the operator's language, with the fix. */
+function requireAccountInstance(ctx: AppContext, account: XhsAccount): void {
+  if (!ctx.xhs.endpointInfo || ctx.xhs.endpointInfo(account.id).source !== 'none') return;
+  const name = account.platform_account_id ?? account.id;
+  throw new PolicyError(
+    'xhs_account_no_endpoint',
+    // Operator-facing: what to click, not what runs underneath (see src/server/humanize.ts for the same rule in pages).
+    `账号「${account.nickname}」还没有连接：在账号卡片上点「连接这个账号」，或在「高级设置」里填写它的账号服务地址，然后再扫码登录`,
+    { account_id: account.id },
+  );
 }
 
 /**
@@ -203,6 +227,7 @@ export async function startAccountLogin(ctx: AppContext, accountId: string | nul
       mode: ctx.xhs.mode,
     });
   }
+  if (account) requireAccountInstance(ctx, account);
   const res = await ctx.xhs.auth.loginQrcode(account?.id ?? null);
   if (!res.ok) {
     throw new PolicyError(`xhs_login_${res.status.toLowerCase()}`, `无法获取登录二维码：${res.reason}`, {
@@ -223,6 +248,114 @@ export async function startAccountLogin(ctx: AppContext, accountId: string | nul
     },
   });
   return res.data;
+}
+
+/**
+ * Log an account's instance out (delete its cookies). The console offers it for handing an account back, moving it to
+ * another machine, or clearing a session that was logged into the wrong Xiaohongshu user. Afterwards the account is
+ * `requires_auth` until someone logs it in again — never silently "still fine".
+ */
+export async function logoutAccount(ctx: AppContext, accountId: string, actor: string): Promise<{ account: XhsAccount; detail: string }> {
+  const account = requireAccount(ctx, accountId);
+  const logout = ctx.xhs.auth?.logout;
+  if (!logout) {
+    throw new PolicyError('xhs_logout_not_applicable', `当前小红书接入 ${ctx.xhs.name}（${ctx.xhs.mode}）没有真实登录会话，无法退出登录`, {
+      provider: ctx.xhs.name,
+      mode: ctx.xhs.mode,
+    });
+  }
+  requireAccountInstance(ctx, account);
+  const res = await logout(account.id);
+  if (!res.ok) {
+    throw new PolicyError(`xhs_logout_${res.status.toLowerCase()}`, `退出登录失败：${res.reason}`, { status: res.status, account_id: account.id });
+  }
+  const detail = truncate(res.data.detail || '已退出登录', MAX_DETAIL_CHARS);
+  const updated = ctx.db.tx(() => {
+    const row = ctx.db.table('xhs_accounts').update(account.id, {
+      auth_state: 'requires_auth',
+      auth_checked_at: ctx.clock.iso(),
+      auth_detail: detail,
+    });
+    ctx.audit.event({ actor, action: 'account.logged_out', entity_type: 'xhs_account', entity_id: account.id, details: { detail } });
+    return row;
+  });
+  return { account: updated, detail };
+}
+
+/**
+ * Open a visible login window on this host for the account's instance (accountId null = research instance). The window
+ * writes the instance's cookies; the running instance picks them up on its next call. A job already running is returned.
+ */
+export async function startLoginWindow(ctx: AppContext, accountId: string | null, actor: string): Promise<XhsVisibleLoginJob> {
+  const account = accountId ? requireAccount(ctx, accountId) : null;
+  const api = ctx.xhs.auth?.visibleLogin;
+  if (!api) {
+    throw new PolicyError('xhs_login_window_not_configured', `当前小红书接入 ${ctx.xhs.name}（${ctx.xhs.mode}）没有配置本机登录窗口（XHS_LOGIN_HELPER / XHS_MCP_DATA_DIR）`, {
+      provider: ctx.xhs.name,
+      mode: ctx.xhs.mode,
+    });
+  }
+  if (account) requireAccountInstance(ctx, account);
+  const res = await api.start(account?.id ?? null);
+  if (!res.ok) {
+    throw new PolicyError(`xhs_login_window_${res.status.toLowerCase()}`, `无法打开登录窗口：${res.reason}`, { status: res.status, account_id: account?.id ?? null });
+  }
+  ctx.audit.event({
+    actor,
+    action: 'account.login_window_opened',
+    entity_type: account ? 'xhs_account' : 'xhs_provider',
+    entity_id: account?.id ?? 'research',
+    details: { instance: res.data.instance, state: res.data.state, expires_at: res.data.expires_at },
+  });
+  return res.data;
+}
+
+/** Latest login-window job of the account's instance in this process (null when none / not configured). */
+export function loginWindowStatus(ctx: AppContext, accountId: string | null): XhsVisibleLoginJob | null {
+  const account = accountId ? requireAccount(ctx, accountId) : null;
+  return ctx.xhs.auth?.visibleLogin?.status(account?.id ?? null) ?? null;
+}
+
+export interface AccountInstanceResult {
+  account: XhsAccount;
+  instance: XhsLocalInstance;
+}
+
+/**
+ * Start (or reuse) this account's own xiaohongshu-mcp instance on this host and bind the account to it. Only possible
+ * where the console runs the instances itself (XHS_MCP_BIN + XHS_MCP_DATA_DIR + XHS_MCP_TOKEN, loopback); elsewhere the
+ * instance is started on its own host and its URL is saved here by hand. Logging in is still a separate, human step.
+ */
+export async function startAccountInstance(ctx: AppContext, accountId: string, actor: string): Promise<AccountInstanceResult> {
+  const account = requireAccount(ctx, accountId);
+  const api = ctx.xhs.auth?.localInstance;
+  if (!api) {
+    throw new PolicyError(
+      'xhs_local_instance_not_configured',
+      `这台机器没有开启「一键连接账号」：请在账号服务所在的机器上把它启动起来，再到账号卡片的「高级设置」里填写地址（部署文档里有具体步骤）`,
+      { provider: ctx.xhs.name, mode: ctx.xhs.mode, account_id: account.id },
+    );
+  }
+  // Ports other accounts are already bound to: a new instance never lands on another account's port.
+  const reserved: number[] = [];
+  for (const other of ctx.db.table('xhs_accounts').query('mcp_endpoint_url IS NOT NULL AND id <> ?', [account.id])) {
+    const port = portOfUrl(other.mcp_endpoint_url ?? '');
+    if (port !== null) reserved.push(port);
+  }
+  const bound = portOfUrl(account.mcp_endpoint_url ?? '');
+  const res = await api.start(account.id, { reserved_ports: reserved, ...(bound === null ? {} : { known_port: bound }) });
+  if (!res.ok) {
+    throw new PolicyError(`xhs_local_instance_${res.status.toLowerCase()}`, `无法启动实例：${res.reason}`, { status: res.status, account_id: account.id });
+  }
+  ctx.audit.event({
+    actor,
+    action: 'account.instance_started',
+    entity_type: 'xhs_account',
+    entity_id: account.id,
+    details: { instance: res.data.instance, url: res.data.url, port: res.data.port, pid: res.data.pid, reused: !res.data.started },
+  });
+  // Env-pinned accounts are refused by the provider, so binding here can only write this account's own new instance.
+  return { account: setAccountEndpoint(ctx, account.id, res.data.url, actor), instance: res.data };
 }
 
 /** Validate and normalize an instance URL: http(s) only, no embedded credentials (tokens come from env). */
@@ -254,7 +387,7 @@ export function setAccountEndpoint(ctx: AppContext, accountId: string, url: stri
       .query('mcp_endpoint_url IS NOT NULL AND id <> ?', [account.id])
       .find((other) => normalizeEndpointUrl(other.mcp_endpoint_url ?? '') === next);
     if (clash) {
-      throw new PolicyError('endpoint_in_use', `该实例地址已被账号「${clash.nickname}」使用；每个托管账号必须使用独立的 xiaohongshu-mcp 实例（独立端口与 COOKIES_PATH）`, {
+      throw new PolicyError('endpoint_in_use', `这个地址已经被账号「${clash.nickname}」占用了；每个账号必须用自己独立的登录环境，否则操作会发到别的账号上`, {
         account_id: clash.id,
       });
     }
@@ -283,7 +416,7 @@ export function setAccountEndpoint(ctx: AppContext, accountId: string, url: stri
     });
   } catch (err) {
     if (err instanceof Error && /UNIQUE constraint failed: xhs_accounts\.mcp_endpoint_url/.test(err.message)) {
-      throw new PolicyError('endpoint_in_use', '该实例地址已被其他托管账号使用；每个托管账号必须使用独立的 xiaohongshu-mcp 实例');
+      throw new PolicyError('endpoint_in_use', '这个地址已经被别的账号占用了；每个账号必须用自己独立的登录环境');
     }
     throw err;
   }
@@ -292,7 +425,8 @@ export function setAccountEndpoint(ctx: AppContext, accountId: string, url: stri
 /** Console read model: every account of the dealer with its session binding and latest capability snapshot per capability. */
 export function getAccountSessions(ctx: AppContext, dealerId: string): AccountSessionRow[] {
   if (!ctx.db.table('dealers').get(dealerId)) throw new NotFoundError('dealer', dealerId);
-  const accounts = ctx.db.table('xhs_accounts').findMany({ dealer_id: dealerId }, { orderBy: 'created_at ASC, id ASC' });
+  // Accounts removed from the fleet are kept only so their history has an author; they are not part of the console fleet.
+  const accounts = ctx.db.table('xhs_accounts').findMany({ dealer_id: dealerId, removed_at: null }, { orderBy: 'created_at ASC, id ASC' });
   return accounts.map((account) => {
     const capabilities: Partial<Record<XhsCapability, CapabilityView>> = {};
     const snapshots = ctx.db
@@ -317,7 +451,15 @@ export function getAccountSessions(ctx: AppContext, dealerId: string): AccountSe
       auth_detail: account.auth_detail ?? null,
       platform_user_id: account.platform_user_id ?? null,
       capabilities,
-      provider: { name: ctx.xhs.name, mode: ctx.xhs.mode, login_api: Boolean(ctx.xhs.auth) },
+      provider: {
+        name: ctx.xhs.name,
+        mode: ctx.xhs.mode,
+        login_api: Boolean(ctx.xhs.auth),
+        login_window: Boolean(ctx.xhs.auth?.visibleLogin),
+        local_instances: Boolean(ctx.xhs.auth?.localInstance),
+      },
+      platform_profile: account.platform_profile ?? null,
+      platform_profile_at: account.platform_profile_at ?? null,
     };
   });
 }

@@ -86,6 +86,8 @@ export const REASSIGN_CANCEL_REASON = '线索已重新分配';
 /** blocked_reason for undelivered outreach of a non-owner account found when a new owner is created */
 export const ORPHAN_OUTREACH_CANCEL_REASON = '线索已由其他账号负责，原账号的待发私信作废';
 export const STICKY_UNAVAILABLE_REASON = '原负责账号不可用，需人工重新分配';
+/** Why a lead was freed: its owning account left the fleet. The lead itself is never deleted with an account. */
+export const GONE_ACCOUNT_REASON = '负责账号已从账号矩阵移除，线索回到门店线索池';
 export const INDUSTRY_ACCOUNT_REASON = '线索为车商/销售等行业账号，非购车客户，不分配账号';
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
@@ -469,7 +471,7 @@ function evaluateAccount(ctx: AppContext, lc: LeadContext, account: XhsAccount, 
     } else {
       const points = health.state === 'HEALTHY' ? 15 : health.state === 'WATCH' ? 9 : 3;
       const label = health.state === 'HEALTHY' ? '账号健康' : health.state === 'WATCH' ? '账号需关注' : '账号存在风险';
-      factors.push(factor('health', points, `${label}（${health.state}，健康分${health.health_score}）${health.issues.length ? `：${health.issues.join('；')}` : ''}`));
+      factors.push(factor('health', points, `${label}（健康分${health.health_score}）${health.issues.length ? `：${health.issues.join('；')}` : ''}`));
     }
   }
 
@@ -635,6 +637,33 @@ export function releaseAssignment(ctx: AppContext, leadId: string, reason: strin
       filter: { account_id: active.account_id },
     });
   });
+}
+
+/**
+ * Release every lead this account owns (used when an account leaves the fleet). The leads themselves are untouched:
+ * they go back to the store's pool, keep their score, stage and history, and can be assigned to any other account.
+ * Must run inside ctx.db.tx.
+ */
+export function releaseAccountLeads(ctx: AppContext, accountId: string, reason: string, actor: string): { leads: string[]; outreach_cancelled: string[] } {
+  if (typeof reason !== 'string' || reason.trim() === '') throw new ValidationError('reason', 'required non-empty string');
+  const active = ctx.db.table('lead_assignments').findMany({ account_id: accountId, active: true }, { orderBy: 'assigned_at ASC, id ASC' });
+  const leads: string[] = [];
+  const cancelled: string[] = [];
+  for (const assignment of active) {
+    const out = releaseInternal(ctx, assignment, reason.trim(), actor.trim(), {
+      reason: `负责账号已移除：${reason.trim()}`,
+      filter: { account_id: accountId },
+    });
+    leads.push(out.released.lead_id);
+    cancelled.push(...out.outreach_cancelled);
+  }
+  return { leads, outreach_cancelled: cancelled };
+}
+
+/** An account that is no longer part of the fleet (deleted row, or archived for history only). */
+function isGoneAccount(ctx: AppContext, accountId: string): boolean {
+  const account = ctx.db.table('xhs_accounts').get(accountId);
+  return !account || Boolean(account.removed_at);
 }
 
 /** Account with the most recent real contact (sent outreach or conversation) with this lead. */
@@ -919,10 +948,18 @@ export function assignLead(ctx: AppContext, leadId: string, opts: AssignLeadOpti
   }
 
   const existing = getActiveAssignment(ctx, lead.id);
-  if (existing) return keepExisting(ctx, existing, ranking.evaluated.map((e) => e.candidate));
+  if (existing && !isGoneAccount(ctx, existing.account_id)) return keepExisting(ctx, existing, ranking.evaluated.map((e) => e.candidate));
+  if (existing) {
+    // The owning account left the fleet (deleted or archived): the lead is the store's, so it is freed and re-ranked.
+    ctx.db.tx(() => {
+      releaseInternal(ctx, existing, GONE_ACCOUNT_REASON, actor, { reason: `负责账号已移除：${GONE_ACCOUNT_REASON}`, filter: { account_id: existing.account_id } });
+    });
+  }
 
   const stickyId = stickyAccountId(ctx, lead.id);
-  if (stickyId) {
+  // An account that left the fleet cannot keep the lead: the lead goes to another account, and the decision says so.
+  const stickyGone = stickyId !== null && isGoneAccount(ctx, stickyId);
+  if (stickyId && !stickyGone) {
     const account = ctx.db.table('xhs_accounts').get(stickyId);
     const sticky = account ? addCandidate(ctx, ranking, account) : null;
     if (!sticky || !sticky.candidate.eligible) {
@@ -957,6 +994,7 @@ export function assignLead(ctx: AppContext, leadId: string, opts: AssignLeadOpti
     );
   }
   const [chosen, runnerUp] = eligible;
+  const handover = existing || stickyGone ? '原负责账号已从账号矩阵移除，线索回到门店线索池后重新分配：' : '';
   const lead_margin = runnerUp
     ? `，领先第二名「${runnerUp.account.nickname}」（${runnerUp.candidate.score}分）${round(chosen.candidate.score - runnerUp.candidate.score, 1)}分`
     : '，为唯一可用账号';
@@ -966,7 +1004,7 @@ export function assignLead(ctx: AppContext, leadId: string, opts: AssignLeadOpti
     {
       chosen,
       mode: 'ranked',
-      reason: `${fallbackNote(ranking, chosen)}选择「${chosen.account.nickname}」（${chosen.candidate.score}分）${lead_margin}：${summarizeFactors(chosen.candidate)}`,
+      reason: `${handover}${fallbackNote(ranking, chosen)}选择「${chosen.account.nickname}」（${chosen.candidate.score}分）${lead_margin}：${summarizeFactors(chosen.candidate)}`,
       confidence: assignmentConfidence(ranking.evaluated.map((e) => e.candidate), chosen.account.id),
       engine: 'rules',
     },

@@ -14,9 +14,11 @@ import {
   splitList,
   updateDealer,
 } from '../../../src/operator/onboarding.ts';
-import { syncAccountAuth } from '../../../src/skills/operations/account-sessions/index.ts';
+import { getAccountSessions, syncAccountAuth } from '../../../src/skills/operations/account-sessions/index.ts';
+import { getActiveAssignment } from '../../../src/skills/acquisition/account-assignment/index.ts';
+import { listFleet } from '../../../src/skills/operations/account-brain/index.ts';
 import { createTestContext, type TestContext } from '../../helpers/context.ts';
-import { seedAssignment, seedLead } from '../../helpers/fixtures.ts';
+import { seedAssignment, seedLead, seedOutreach } from '../../helpers/fixtures.ts';
 
 const ACTOR = 'operator:测试';
 const TOOLS = ['check_login_status', 'get_login_qrcode', 'search_feeds', 'get_feed_detail', 'user_profile', 'publish_content', 'get_my_profile', 'reply_comment_in_feed'];
@@ -91,6 +93,17 @@ describe('onboarding: the dealer enters its own data', () => {
     assert.throws(() => updateDealer(ctx, dealer.id, { brands: '' }, ACTOR), isValidation(/请填写经营品牌/));
   });
 
+  it('records where the store hand-sends DMs, keeping the other settings', () => {
+    const ctx = createTestContext();
+    const dealer = ownDealer(ctx);
+    assert.equal(dealer.settings.dm_channel, 'app', 'the app is the default until a store says otherwise');
+
+    const pro = updateDealer(ctx, dealer.id, { dm_channel: 'pro' }, ACTOR);
+    assert.equal(pro.settings.dm_channel, 'pro');
+    assert.equal(pro.settings.daily_outreach_limit, dealer.settings.daily_outreach_limit, 'other settings untouched');
+    assert.throws(() => updateDealer(ctx, dealer.id, { dm_channel: '千帆' }, ACTOR), isValidation(/私信渠道/));
+  });
+
   it('adds models of the store brands only and refuses to delete a model in use', () => {
     const ctx = createTestContext();
     const dealer = createDealer(ctx, { name: '特斯拉体验店', brands: '特斯拉', city: '深圳' }, ACTOR);
@@ -156,19 +169,57 @@ describe('onboarding: the dealer enters its own data', () => {
     assert.equal(ctx.db.table('xhs_accounts').count({ dealer_id: dealer.id }), before, 'a rejected instance address creates nothing');
   });
 
-  it('removes an account only while nothing references it', () => {
+  it('removing an account releases its leads instead of refusing; leads are the store’s and stay', () => {
     const ctx = createTestContext();
     const dealer = ownDealer(ctx);
     const used = addAccount(ctx, dealer.id, { nickname: '已在用', account_type: 'official' }, ACTOR);
     const lead = seedLead(ctx, { dealer_id: dealer.id, platform_user_id: 'u-1' });
-    seedAssignment(ctx, { lead_id: lead.id, account_id: used.id });
-    assert.throws(() => removeAccount(ctx, used.id, ACTOR), isPolicy('account_has_history'));
+    const assignment = seedAssignment(ctx, { lead_id: lead.id, account_id: used.id });
+
+    const result = removeAccount(ctx, used.id, ACTOR);
+    assert.equal(result.mode, 'deleted', 'an account that never contacted anyone is deleted outright');
+    assert.equal(result.leads_released, 1);
+    assert.match(result.detail, /线索池/);
+    assert.equal(ctx.db.table('xhs_accounts').get(used.id), undefined);
+    const keptLead = ctx.db.table('leads').get(lead.id);
+    assert.ok(keptLead, 'the lead survives its account');
+    assert.equal(keptLead.score, lead.score);
+    assert.equal(ctx.db.table('lead_assignments').get(assignment.id), undefined, 'the assignment row went with the account');
+    assert.equal(getActiveAssignment(ctx, lead.id), undefined, 'the lead is back in the pool, owned by nobody');
+    const released = ctx.audit.eventsFor('lead', lead.id).find((e) => e.action === 'lead.assignment_released');
+    assert.equal(released?.details.account_id, used.id);
 
     const mistake = addAccount(ctx, dealer.id, { nickname: '填错了', account_type: 'local_guide' }, ACTOR);
-    removeAccount(ctx, mistake.id, ACTOR);
+    assert.equal(removeAccount(ctx, mistake.id, ACTOR).leads_released, 0);
     assert.equal(ctx.db.table('xhs_accounts').get(mistake.id), undefined);
     assert.equal(ctx.db.table('account_personas').findOne({ account_id: mistake.id }), undefined);
     assert.equal(ctx.audit.eventsFor('xhs_account', mistake.id).filter((e) => e.action === 'account.deleted').length, 1);
+  });
+
+  it('an account that already contacted customers is archived: history keeps its author, its leads go back to the pool', () => {
+    const ctx = createTestContext();
+    const dealer = ownDealer(ctx);
+    const account = addAccount(ctx, dealer.id, { nickname: '销售小周', account_type: 'salesperson', salesperson_name: '周', platform_account_id: 'zhou-1' }, ACTOR);
+    const lead = seedLead(ctx, { dealer_id: dealer.id, platform_user_id: 'u-contacted', stage: 'CONTACTED' });
+    const assignment = seedAssignment(ctx, { lead_id: lead.id, account_id: account.id });
+    const sent = seedOutreach(ctx, { lead_id: lead.id, account_id: account.id, assignment_id: assignment.id, status: 'SENT_MANUALLY' });
+
+    const result = removeAccount(ctx, account.id, ACTOR);
+    assert.equal(result.mode, 'archived');
+    assert.equal(result.leads_released, 1);
+    const row = ctx.db.table('xhs_accounts').get(account.id);
+    assert.ok(row?.removed_at, 'the row stays so the sent message keeps its author');
+    assert.equal(row?.status, 'disabled', 'an archived account gets no work');
+    assert.equal(row?.platform_account_id, null, 'the Xiaohongshu identity is freed: the same account can be added again');
+    assert.ok(ctx.db.table('outreach').get(sent.id), 'the record that this customer was messaged is never deleted');
+    assert.ok(ctx.db.table('leads').get(lead.id), 'the lead stays');
+    assert.equal(getActiveAssignment(ctx, lead.id), undefined);
+    assert.equal(getAccountSessions(ctx, dealer.id).length, 0, 'it is gone from the console fleet');
+    assert.equal(listFleet(ctx, { dealer_id: dealer.id }).length, 0);
+    // The freed identity really is reusable.
+    const again = addAccount(ctx, dealer.id, { nickname: '销售小周', account_type: 'salesperson', salesperson_name: '周', platform_account_id: 'zhou-1' }, ACTOR);
+    assert.notEqual(again.id, account.id);
+    assert.equal(getAccountSessions(ctx, dealer.id).length, 1);
   });
 
   it('deletes a mistaken store with its data, but never one with leads', () => {

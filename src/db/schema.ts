@@ -21,6 +21,9 @@ import {
   LEAD_STAGES,
   MESSAGE_DIRECTIONS,
   MESSAGE_STATUSES,
+  NOTIFICATION_KINDS,
+  NOTIFICATION_STATUSES,
+  NOTIFICATION_TABS,
   OFFER_TYPES,
   OUTREACH_KINDS,
   OUTREACH_STATUSES,
@@ -45,10 +48,10 @@ export const TABLE_META: Record<TableName, { json: readonly string[]; bool: read
   dealer_groups: { json: [], bool: [] },
   dealers: { json: ['brands', 'settings'], bool: [] },
   dealer_knowledge: { json: ['data'], bool: [] },
-  vehicles: { json: ['specs', 'highlights', 'aliases'], bool: [] },
+  vehicles: { json: ['specs', 'highlights', 'aliases', 'images', 'target_customers', 'competitors', 'faqs', 'content_angles'], bool: [] },
   inventory: { json: [], bool: [] },
   offers: { json: [], bool: [] },
-  xhs_accounts: { json: [], bool: [] },
+  xhs_accounts: { json: ['platform_profile'], bool: [] },
   account_personas: {
     json: [
       'voice_rules',
@@ -90,6 +93,8 @@ export const TABLE_META: Record<TableName, { json: readonly string[]; bool: read
   capability_snapshots: { json: [], bool: [] },
   research_briefs: { json: ['scope', 'findings', 'source_counts'], bool: [] },
   engagement_replies: { json: ['fact_refs', 'guard_results'], bool: [] },
+  xhs_notifications: { json: [], bool: ['comment_liked'] },
+  account_voice_profiles: { json: ['sample_note_ids', 'metrics', 'rules', 'vocabulary', 'examples', 'avoid'], bool: [] },
   operator_reports: { json: ['report'], bool: [] },
 };
 
@@ -756,8 +761,146 @@ CREATE INDEX idx_public_posts_data_mode ON public_posts(data_mode);
 CREATE UNIQUE INDEX uq_account_mcp_endpoint ON xhs_accounts(mcp_endpoint_url) WHERE mcp_endpoint_url IS NOT NULL;
 `;
 
+// v4: the managed account's own Xiaohongshu profile (avatar, bio, counts, own notes), read from its logged-in session.
+const SCHEMA_V4 = /* sql */ `
+ALTER TABLE xhs_accounts ADD COLUMN platform_profile TEXT;
+ALTER TABLE xhs_accounts ADD COLUMN platform_profile_at TEXT;
+`;
+
+/**
+ * Avatars: leads carry the public avatar of the person (Xiaohongshu serves it from sns-avatar-qc.xhscdn.com; the
+ * console proxies it). Existing rows are backfilled from the payloads already stored with their signals, so the
+ * inbox shows a face for leads discovered before this migration instead of an initial-letter placeholder.
+ */
+const SCHEMA_V5 = /* sql */ `
+ALTER TABLE leads ADD COLUMN avatar_url TEXT;
+
+UPDATE leads SET avatar_url = (
+  SELECT json_extract(p.raw, '$.user.avatar')
+  FROM lead_signals s
+  JOIN public_posts p ON p.id = s.public_post_id
+  WHERE s.lead_id = leads.id
+    AND p.author_platform_user_id = leads.platform_user_id
+    AND json_extract(p.raw, '$.user.avatar') IS NOT NULL
+    AND json_extract(p.raw, '$.user.avatar') <> ''
+  ORDER BY s.signal_at DESC
+  LIMIT 1
+)
+WHERE avatar_url IS NULL;
+`;
+
+/**
+ * Removing an account must never take the store's leads with it. An account that already talked to customers (sent
+ * DMs, conversations, appointments, published notes) is archived instead of deleted: the row stays so that history
+ * keeps its author, `removed_at` takes it out of the fleet, and its identity fields are cleared so the same
+ * Xiaohongshu account can be added again. Leads are released to the pool by the assignment skill, never deleted.
+ */
+const SCHEMA_V6 = /* sql */ `
+ALTER TABLE xhs_accounts ADD COLUMN removed_at TEXT;
+`;
+
+/**
+ * The platform's own notification centre, mirrored per account. One row per notification the account received:
+ * a comment or @ on our note, a like or collect, a new follower. `provider_notification_id` is Xiaohongshu's own id,
+ * so a re-sync never duplicates a row, and everything needed to act on it later (comment_id for a reply or a like,
+ * feed id + xsec_token to open the note, the sender's xsec_token to open their profile) is stored with it.
+ */
+const SCHEMA_V7 = /* sql */ `
+CREATE TABLE xhs_notifications (
+  id TEXT PRIMARY KEY,
+  dealer_id TEXT NOT NULL REFERENCES dealers(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES xhs_accounts(id) ON DELETE CASCADE,
+  provider_notification_id TEXT NOT NULL,
+  tab TEXT NOT NULL ${inList('tab', NOTIFICATION_TABS)},
+  kind TEXT NOT NULL ${inList('kind', NOTIFICATION_KINDS)},
+  title TEXT NOT NULL DEFAULT '',
+  occurred_at TEXT NOT NULL,
+  from_user_id TEXT NOT NULL,
+  from_nickname TEXT NOT NULL DEFAULT '',
+  from_xsec_token TEXT,
+  comment_id TEXT,
+  comment_text TEXT,
+  comment_liked INTEGER NOT NULL DEFAULT 0,
+  note_id TEXT,
+  note_xsec_token TEXT,
+  note_title TEXT,
+  status TEXT NOT NULL ${inList('status', NOTIFICATION_STATUSES)},
+  lead_id TEXT REFERENCES leads(id) ON DELETE SET NULL,
+  reply_message_id TEXT,
+  handled_at TEXT,
+  handled_by TEXT,
+  fetched_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX uq_notification_provider_id ON xhs_notifications(account_id, provider_notification_id);
+CREATE INDEX idx_notifications_inbox ON xhs_notifications(dealer_id, status, occurred_at DESC);
+CREATE INDEX idx_notifications_account ON xhs_notifications(account_id, tab, occurred_at DESC);
+`;
+
+/**
+ * Video notes. Xiaohongshu publishes a video note through a different publisher than an image note
+ * (`publish_with_video`), and it takes exactly one local file — so this is a path on the instance's host, and a post
+ * has either images or a video, never both.
+ */
+const SCHEMA_V8 = /* sql */ `
+ALTER TABLE posts ADD COLUMN video TEXT;
+`;
+
+/**
+ * 车型库 / Vehicle Brain. A catalog row stops being a price list line and becomes the card the store actually sells
+ * from: a gallery, the price it is sold at today, what it is, who it is for, what it is cross-shopped against, the
+ * questions customers ask, and the angles a note can be written from. The prose may be AI-written; the numbers in it
+ * are verified against these same rows plus inventory and offers, never invented. Archiving replaces deleting for a
+ * trim that already has history.
+ */
+const SCHEMA_V9 = /* sql */ `
+ALTER TABLE vehicles ADD COLUMN images TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE vehicles ADD COLUMN current_price INTEGER;
+ALTER TABLE vehicles ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE vehicles ADD COLUMN target_customers TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE vehicles ADD COLUMN competitors TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE vehicles ADD COLUMN faqs TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE vehicles ADD COLUMN content_angles TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE vehicles ADD COLUMN knowledge_generated_at TEXT;
+ALTER TABLE vehicles ADD COLUMN knowledge_engine TEXT;
+ALTER TABLE vehicles ADD COLUMN archived_at TEXT;
+CREATE INDEX idx_vehicles_live ON vehicles(group_id, archived_at, brand, model);
+`;
+
+/**
+ * 账号语言风格. One row per account — never shared, never merged: the whole point is that each account keeps writing
+ * the way it already writes. Everything in it is derived from that account's own published notes, which stay in
+ * `public_posts`; `sample_note_ids` records exactly which ones the profile was built from.
+ */
+const SCHEMA_V10 = /* sql */ `
+CREATE TABLE account_voice_profiles (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL UNIQUE REFERENCES xhs_accounts(id) ON DELETE CASCADE,
+  dealer_id TEXT NOT NULL REFERENCES dealers(id) ON DELETE CASCADE,
+  sample_count INTEGER NOT NULL DEFAULT 0,
+  sample_note_ids TEXT NOT NULL DEFAULT '[]',
+  metrics TEXT NOT NULL DEFAULT '{}',
+  rules TEXT NOT NULL DEFAULT '[]',
+  vocabulary TEXT NOT NULL DEFAULT '{}',
+  examples TEXT NOT NULL DEFAULT '[]',
+  avoid TEXT NOT NULL DEFAULT '[]',
+  engine TEXT NOT NULL,
+  analyzed_at TEXT NOT NULL,
+  newest_sample_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_voice_dealer ON account_voice_profiles(dealer_id, analyzed_at DESC);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial_schema', sql: SCHEMA_V1 },
   { version: 2, name: 'signal_detection_fields', sql: SCHEMA_V2 },
   { version: 3, name: 'provenance_actor_sessions', sql: SCHEMA_V3 },
+  { version: 4, name: 'account_platform_profile', sql: SCHEMA_V4 },
+  { version: 5, name: 'lead_avatar', sql: SCHEMA_V5 },
+  { version: 6, name: 'account_removed_at', sql: SCHEMA_V6 },
+  { version: 7, name: 'xhs_notifications', sql: SCHEMA_V7 },
+  { version: 8, name: 'post_video', sql: SCHEMA_V8 },
+  { version: 9, name: 'vehicle_brain', sql: SCHEMA_V9 },
+  { version: 10, name: 'account_voice', sql: SCHEMA_V10 },
 ];

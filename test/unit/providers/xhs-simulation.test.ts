@@ -280,7 +280,10 @@ describe('SimulationXhsProvider capabilities & actions', () => {
   it('enables write-like capabilities through options', async () => {
     const { sim } = provider({ send_messages: true, publish: true, receive_messages: true, reply_comments: true });
     const report = await sim.capabilities('acc_1');
-    for (const cap of XHS_CAPABILITIES) assert.equal(report.capabilities[cap].status, 'AVAILABLE', cap);
+    // Everything an option can enable; the notification centre is not one of them — it exists only for a real account.
+    for (const cap of XHS_CAPABILITIES.filter((c) => c !== 'read_notifications')) assert.equal(report.capabilities[cap].status, 'AVAILABLE', cap);
+    assert.equal(report.capabilities.read_notifications.status, 'UNAVAILABLE');
+    assert.match(report.capabilities.read_notifications.reason, /real logged-in account/);
     const reply = unwrap(await sim.replyToComment('acc_1', { platform_post_id: 'note-own-hz-i3-001', platform_comment_id: 'c-own-i3-001' }, '在的，欢迎到店看车'));
     assert.equal(reply.provider_message_id, 'sim-reply-1');
     assert.equal(sim.sentReplies()[0].platform_comment_id, 'c-own-i3-001');

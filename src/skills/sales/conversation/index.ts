@@ -55,6 +55,8 @@ import {
   verifyClaims,
   type FactQuestionKind,
 } from '../../operations/dealer-brain/index.ts';
+import { matchVehicle, vehicleFaqAnswer } from '../../operations/vehicle-brain/index.ts';
+import { applyVoicePronoun, getAccountVoice } from '../../content/account-voice/index.ts';
 import { defineSkill } from '../../registry.ts';
 import { getActiveAppointment, upsertAppointment, vehicleInterestFor } from '../appointment/index.ts';
 import { qualifyLead } from '../qualification/index.ts';
@@ -207,6 +209,7 @@ const FACT_KIND_LABELS: Record<string, string> = {
   trade_in: '置换政策',
   highlights: '车型亮点',
   store: '门店地址',
+  vehicle_faq: '车型资料',
 };
 
 function greetingFor(account: XhsAccount, persona: AccountPersona): string {
@@ -280,6 +283,14 @@ export function composeReply(ctx: AppContext, p: ComposeInput): ReplyPlan | null
     }
   }
 
+  // 车型库 (RAG): a question the fact kinds do not cover — charging, warranty, space, servicing — may still have an
+  // answer on the matched vehicle card. That text was verified against the store's own data when it was written.
+  if (segments.length === 0) {
+    const card = matchVehicle(ctx, p.dealer.id, { model: model ?? undefined, trim: trim ?? undefined, text: p.content });
+    const faq = card ? vehicleFaqAnswer(card, p.content) : null;
+    if (card && faq) push('vehicle_faq', faq.faq.answer, card.fact_refs.filter((r) => r.kind === 'vehicle'));
+  }
+
   if (p.appointment_requested || p.appointment) {
     const parts: string[] = [];
     const facts: FactRef[] = [];
@@ -309,7 +320,7 @@ export function composeReply(ctx: AppContext, p: ComposeInput): ReplyPlan | null
 
   if (segments.length === 0 && closings.length === 0) {
     if (!p.first_inbound) return null;
-    const text = `${greeting}请问您想了解哪款车型？预算和计划购车时间方便说一下吗？我按门店资料帮您核实～`;
+    const text = applyVoicePronoun(`${greeting}请问您想了解哪款车型？预算和计划购车时间方便说一下吗？我按门店资料帮您核实～`, getAccountVoice(ctx, p.account.id));
     return { text, facts: [], answered: [], skipped: [] };
   }
 
@@ -331,7 +342,8 @@ export function composeReply(ctx: AppContext, p: ComposeInput): ReplyPlan | null
   } else if (closing.length === 0 && lengthOf(included, [fallbackClosing]) <= DM_MAX_LENGTH) {
     closing.push(fallbackClosing);
   }
-  const text = `${greeting}${included.map((s) => s.text).join('')}${closing.join('')}`;
+  // 账号语言风格: say 你 or 您 the way this account itself says it (only when its own notes settle the question).
+  const text = applyVoicePronoun(`${greeting}${included.map((s) => s.text).join('')}${closing.join('')}`, getAccountVoice(ctx, p.account.id));
   const facts = new Map<string, FactRef>();
   for (const s of included) for (const f of s.facts) facts.set(`${f.kind}:${f.id}:${f.claim}`, f);
   return { text, facts: [...facts.values()], answered: [...new Set(included.map((s) => s.kind))], skipped: [...new Set(skipped)] };

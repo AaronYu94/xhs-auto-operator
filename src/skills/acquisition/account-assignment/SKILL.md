@@ -14,7 +14,8 @@ load, previous contact, lead ownership and account health.
 - Skill input: `{ lead_id: string; reassign_to?: string; actor?: string; reason?: string }`
   (`reassign_to` is the operator action; `actor` defaults to `agent:fleet-controller`).
 - `rankAccountsForLead(ctx, lead)`, `assignLead(ctx, leadId, { reassign_to?, actor?, reason? })`,
-  `getActiveAssignment(ctx, leadId)`, `releaseAssignment(ctx, leadId, reason, actor)`.
+  `getActiveAssignment(ctx, leadId)`, `releaseAssignment(ctx, leadId, reason, actor)`,
+  `releaseAccountLeads(ctx, accountId, reason, actor)` (inside `ctx.db.tx`; used when an account leaves the fleet).
 - Reads: `leads` (score, stage, merged intent, evidence, actor_type), `lead_signals` (transaction questions of
   purchase signals; IP 属地 of the source comment/post), `xhs_accounts`, `account_personas` (focus models/brands),
   account-brain performance (`getAccountPerformance`, `effectiveOutreachPolicy`), today's `account_health`
@@ -80,6 +81,10 @@ choice is the only eligible account; 0.95 for a sticky owner; 1 for an `operator
   plus a decision. A repeated identical failure (same reason, no decision since) is not recorded again.
 - `releaseAssignment` is idempotent (no active owner → no-op), cancels that account's undelivered outreach
   (so the new owner's first touch is not blocked by `uq_live_first_touch`) and writes `lead.assignment_released`.
+- **A lead is the store's, not the account's.** `releaseAccountLeads` frees everything a departing account owned
+  (`GONE_ACCOUNT_REASON`); the leads keep score, stage, signals and history. An owner that left the fleet (deleted row
+  or `removed_at`) is released and re-ranked instead of kept, and a sticky contact account that left no longer blocks
+  the lead — a sticky account that is merely unavailable still waits for a human, as before.
 - The skill's `validateOutput` enforces: non-empty reason, returned assignment active, a new owner is an eligible
   ranked candidate, and every candidate's score equals the sum of its factors within 0..100.
 

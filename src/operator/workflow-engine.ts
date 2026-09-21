@@ -51,6 +51,11 @@ export interface StepContext {
   run: WorkflowRun;
   input: Record<string, unknown>;
   outputs: Record<string, Record<string, unknown>>;
+  /**
+   * Report live progress of a long step (stored as the RUNNING step's `output.progress`, shown on the run page).
+   * Replaced by the step's real output when it finishes. Never throws.
+   */
+  progress(p: Record<string, unknown>): void;
 }
 
 export interface WorkflowStepDef {
@@ -828,7 +833,14 @@ export class WorkflowEngine {
 
       let raw: unknown;
       try {
-        raw = await def.run({ ctx, run, input: run.input, outputs: structuredClone(outputs) });
+        const progress = (p: Record<string, unknown>) => {
+          try {
+            steps.update(stepId, { output: { progress: { ...p, at: ctx.clock.iso() } } });
+          } catch {
+            // progress is best effort; the step's own result is what counts
+          }
+        };
+        raw = await def.run({ ctx, run, input: run.input, outputs: structuredClone(outputs), progress });
       } catch (err) {
         lastError = describeError(err);
         if (attempt < maxAttempts) {

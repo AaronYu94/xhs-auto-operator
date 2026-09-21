@@ -377,6 +377,22 @@ describe('automotive-query-generation: generateQueries (spec §5)', () => {
     assert.deepEqual(planned.map((p) => [p.text, p.query_class, p.priority]), rows.map((r) => [r.text, r.query_class, r.priority]));
   });
 
+  it('without vehicles in the Dealer Brain, brand-level buyer questions replace model words (not only 城市+品牌)', () => {
+    const { ctx, hz } = setup();
+    ctx.db.run('DELETE FROM inventory');
+    ctx.db.run('DELETE FROM offers');
+    ctx.db.run('DELETE FROM vehicles');
+    const rows = generateQueries(ctx, { dealer_id: hz, goal: { type: 'lead_generation', brand: 'BMW', models: [], location: '杭州' }, goal_id: 'goal_brand_only' });
+    for (const text of ['宝马值得买吗', '宝马哪款值得买', '宝马落地价', '宝马求推荐']) {
+      const row = get(rows, text);
+      assert.equal(row.model, null);
+      assert.match(row.generation_reason, /尚未在门店资料中录入宝马车型/);
+    }
+    const withVehicles = setup();
+    const modelRows = generateQueries(withVehicles.ctx, { dealer_id: withVehicles.hz, goal: GOAL, goal_id: 'goal_models' });
+    assert.ok(!texts(modelRows).includes('宝马求推荐'), 'model-level words are used once vehicles exist');
+  });
+
   it('pure helpers: budget brackets, trim aliases and query keys', () => {
     assert.equal(budgetBracketWan(263_900), 25);
     assert.equal(budgetBracketWan(329_900), 30);

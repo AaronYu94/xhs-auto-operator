@@ -5,6 +5,7 @@ import { McpError, McpHttpClient, parseSseMessages } from '../../../src/provider
 import {
   classifyToolText,
   DM_TOOL_PATTERN,
+  mapFeed,
   McpXhsProvider,
   NO_ENDPOINT_REASON,
   toCount,
@@ -279,7 +280,7 @@ describe('McpXhsProvider payload mapping', () => {
     assert.equal(n.platform_post_id, '66e1aa');
     assert.equal(n.xsec_token, 'tok-1');
     assert.equal(n.title, '宝马i3值得买吗');
-    assert.deepEqual(n.author, { platform_user_id: 'kol-1', nickname: '电车老司机阿杰', profile_url: 'https://www.xiaohongshu.com/user/profile/kol-1' });
+    assert.deepEqual(n.author, { platform_user_id: 'kol-1', nickname: '电车老司机阿杰', profile_url: 'https://www.xiaohongshu.com/user/profile/kol-1', avatar_url: null });
     assert.equal(n.like_count, 12000);
     assert.equal(n.url, 'https://www.xiaohongshu.com/explore/66e1aa?xsec_token=tok-1');
     assert.equal(n.published_at, null);
@@ -288,6 +289,25 @@ describe('McpXhsProvider payload mapping', () => {
     assert.equal(toCount('10w+'), 100000);
     assert.equal(toCount('3.5千'), 3500);
     assert.equal(toCount('n/a'), 0);
+  });
+
+  it('search cards carry the comment count when the platform shows it', () => {
+    const card = (interactInfo: Record<string, unknown>) => mapFeed({ id: 'n1', xsecToken: 't', modelType: 'note', noteCard: { displayTitle: 'x', user: { userId: 'u' }, interactInfo } });
+    assert.equal(card({ likedCount: '2', commentCount: '227' })?.comment_count, 227);
+    assert.equal(card({ likedCount: '2', commentCount: '1.2万' })?.comment_count, 12000);
+    assert.equal(card({ likedCount: '2' })?.comment_count, null, 'absent is unknown, never 0');
+  });
+
+  it('getNoteWithComments reads the detail and its comments with ONE get_feed_detail call', async () => {
+    const { provider, net } = setup({ [I3]: { handlers: { get_feed_detail: () => ({ text: JSON.stringify(NOTE_DETAIL) }) } } });
+    const ref = { platform_post_id: '66e1aa', xsec_token: 'tok-1' };
+    const both = unwrap(await provider.getNoteWithComments(ref, { include_replies: true, limit: 50 }, 'xhs-hz-i3'));
+    assert.equal(net.toolCalls('get_feed_detail').length, 1, 'one page load for detail + comments');
+    assert.deepEqual(net.toolCalls('get_feed_detail')[0].params.arguments, { feed_id: '66e1aa', xsec_token: 'tok-1', load_all_comments: true, limit: 50, click_more_replies: true, reply_limit: 10 });
+    assert.deepEqual(both.note, unwrap(await provider.getNote(ref, 'xhs-hz-i3')), 'same note as getNote');
+    assert.deepEqual(both.comments, unwrap(await provider.getComments(ref, { include_replies: true, limit: 50 }, 'xhs-hz-i3')), 'same comments as getComments');
+    const noToken = await provider.getNoteWithComments({ platform_post_id: '66e1aa' }, {}, 'xhs-hz-i3');
+    assert.ok(!noToken.ok && /xsec_token/.test(noToken.reason));
   });
 
   it('get_feed_detail → XhsNoteDetail and XhsComment (ms → ISO, replies flattened)', async () => {
@@ -311,7 +331,7 @@ describe('McpXhsProvider payload mapping', () => {
     assert.equal(c1.like_count, 25);
     assert.equal(c1.published_at, new Date(1789100000000).toISOString());
     assert.equal(c1.ip_location, '浙江');
-    assert.deepEqual(c1.author, { platform_user_id: 'u2', nickname: '今天也要早睡', profile_url: 'https://www.xiaohongshu.com/user/profile/u2' });
+    assert.deepEqual(c1.author, { platform_user_id: 'u2', nickname: '今天也要早睡', profile_url: 'https://www.xiaohongshu.com/user/profile/u2', avatar_url: null });
     assert.equal(flat[2].ip_location, null);
     const tops = unwrap(await provider.getComments(ref, {}, 'xhs-hz-i3'));
     assert.deepEqual(tops.map((c) => c.platform_comment_id), ['c1', 'c2']);
@@ -353,6 +373,24 @@ describe('McpXhsProvider payload mapping', () => {
     assert.ok(!failed.ok && failed.status === 'UNAVAILABLE' && /标题长度超过限制/.test(failed.reason));
     const other = await provider.publishNote('unknown-account', { title: 't', body: 'b', tags: [], images: ['/a.jpg'] });
     assert.ok(!other.ok && other.reason === 'no xiaohongshu-mcp endpoint configured for this account');
+  });
+
+  it('publish_with_video: a video note takes one local path and never carries images', async () => {
+    const { provider, net } = setup({ [I3]: { handlers: { publish_with_video: () => ({ text: '视频发布成功: 提车日' }) } } });
+    const ok = unwrap(
+      await provider.publishNote('xhs-hz-i3', { title: '提车日', body: '今天交付', tags: ['提车'], images: ['/data/i3.jpg'], video: '/data/tiche.mp4' }),
+    );
+    assert.deepEqual(ok, { platform_note_id: null, url: null });
+    assert.deepEqual(net.toolCalls('publish_with_video')[0].params.arguments, { title: '提车日', content: '今天交付', video: '/data/tiche.mp4', tags: ['提车'] });
+    assert.equal(net.toolCalls('publish_content').length, 0, 'a video note does not go through the image publisher');
+
+    const url = await provider.publishNote('xhs-hz-i3', { title: 't', body: 'b', tags: [], video: 'https://example.com/a.mp4' });
+    assert.ok(!url.ok && /absolute local path/.test(url.reason));
+    assert.equal(net.toolCalls('publish_with_video').length, 1);
+
+    const withoutTool = setup({ [I3]: { tools: XHS_MCP_TOOLS.filter((t) => t !== 'publish_with_video') } });
+    const missing = await withoutTool.provider.publishNote('xhs-hz-i3', { title: 't', body: 'b', tags: [], video: '/data/a.mp4' });
+    assert.ok(!missing.ok && /publish_with_video not exposed/.test(missing.reason));
   });
 
   it('engagement via get_my_profile, comment replies and logged-out tool text', async () => {

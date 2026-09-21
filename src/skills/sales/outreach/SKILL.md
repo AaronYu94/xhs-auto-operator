@@ -21,14 +21,21 @@ claims `SENT` without a provider-confirmed message id.
 ## Outputs
 `Outreach` rows (message, personalization evidence, fact_refs, guard_results, approval_policy, capability_status,
 status, provider_message_id, blocked_reason, approved_by/at, sent_at, sent_by, engine). Queue items add lead summary
-(score, tier, stage, data_mode, actor_type), owning account, original signal with source URL, copy-ready text and
-Chinese step-by-step manual-send instructions.
+(score, tier, stage, data_mode, actor_type), owning account, original signal with source URL, copy-ready text,
+Chinese step-by-step manual-send instructions, and the store's own DM channel (`send_channel`, `workbench_url`).
+The steps follow `dealer.settings.dm_channel`: 小红书 App (default) or the 专业号 workbench at `PRO_WORKBENCH_URL`
+(`https://pro.xiaohongshu.com/im/multiCustomerService`). Both end with a human sending and registering it — the
+channel changes wording and a link, never who sends.
 
 ## Validation & guarantees
 - Composer (`composer.ts`): persona voice per account type (official / salesperson / model_specialist / local_guide /
   customer_story); quote ≤ 18 chars, verbatim, free of contact info, prohibited phrases and anything that would read
   as a price/stock claim; inventory / offer / highlight phrases copied from `answerFact` claims; CTA only 留资卡 /
   预约到店; ≤ 300 chars (optional parts dropped by priority).
+- `sendOutreach` stores the recipient's avatar on the lead when the send channel saw it and the lead had none.
+- `sendOutreach` marks `SENT` only with a provider-confirmed message id. Where DM sending is enabled
+  (`XHS_DM_SENDER`), that id is the message read back in the conversation; an unknown outcome keeps the outreach
+  APPROVED with `DM_SEND_UNKNOWN_MARK` in `blocked_reason` and is never sent again automatically.
 - Optional LLM refinement only when `ctx.llm` is AVAILABLE; accepted only if every fact claim and the quote survive
   verbatim, `verifyClaims` and `checkPlatformRules` pass and no contact info appears — else the rules text is used.
   The generation decision records `llm_unavailable | llm_used | llm_rejected: …`.

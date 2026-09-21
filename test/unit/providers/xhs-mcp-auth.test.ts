@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { ManualClock } from '../../../src/core/clock.ts';
 import {
   identityFromMyProfile,
+  profileFromMyProfile,
   LOGIN_CACHE_TTL_MS,
   LOGIN_QRCODE_TTL_MS,
+  MCP_DM_REASONS,
   McpXhsProvider,
   NO_ENDPOINT_REASON,
   parseLoginStatusText,
@@ -14,6 +18,9 @@ import {
 } from '../../../src/providers/xhs/mcp-provider.ts';
 import { createXhsProvider, xhsProviderConfigFromEnv } from '../../../src/providers/xhs/index.ts';
 import type { ProviderResult } from '../../../src/providers/xhs/types.ts';
+import { parseHelperOutput, type VisibleLoginOutcome, type VisibleLoginRequest, type VisibleLoginRunner } from '../../../src/providers/xhs/visible-login.ts';
+import { findInstancePort, isLoopbackHost, type LocalInstanceRunner, type LocalInstanceSpec, type PortProbe } from '../../../src/providers/xhs/local-instance.ts';
+import { DM_SEND_UNKNOWN_MARK, parseSenderOutput, type DmSendOutcome, type DmSendRequest, type DmSendRunner } from '../../../src/providers/xhs/dm-send.ts';
 import { TEST_NOW } from '../../helpers/context.ts';
 
 /** Verbatim results of a REAL logged-out xiaohongshu-mcp instance (see _about in the fixture). */
@@ -68,13 +75,33 @@ const RESEARCH = 'http://127.0.0.1:18060/mcp';
 const I3 = 'http://127.0.0.1:18061/mcp';
 const DB_WANG = 'http://127.0.0.1:18065/mcp';
 
-function setup(servers: Record<string, Server>, opts: { cfg?: Partial<McpProviderConfig>; resolveEndpoint?: (id: string) => McpEndpointConfig | null; resolveAccount?: (id: string) => string | null } = {}) {
+function setup(
+  servers: Record<string, Server>,
+  opts: {
+    cfg?: Partial<McpProviderConfig>;
+    resolveEndpoint?: (id: string) => McpEndpointConfig | null;
+    resolveAccount?: (id: string) => string | null;
+    runVisibleLogin?: VisibleLoginRunner;
+    startLocalInstance?: LocalInstanceRunner;
+    runDmSend?: DmSendRunner;
+    probePort?: PortProbe;
+    fetchImpl?: (inner: typeof fetch) => typeof fetch;
+  } = {},
+) {
   const clock = new ManualClock(TEST_NOW);
   const net = network(servers);
   const provider = new McpXhsProvider(
     clock,
     { research_endpoint: { url: RESEARCH, token: 'r' }, account_endpoints: { 'xhs-hz-i3': { url: I3, token: 'i3' } }, ...opts.cfg },
-    { fetchImpl: net.fetchImpl, resolveEndpoint: opts.resolveEndpoint, resolveAccount: opts.resolveAccount },
+    {
+      fetchImpl: opts.fetchImpl ? opts.fetchImpl(net.fetchImpl) : net.fetchImpl,
+      resolveEndpoint: opts.resolveEndpoint,
+      resolveAccount: opts.resolveAccount,
+      runVisibleLogin: opts.runVisibleLogin,
+      startLocalInstance: opts.startLocalInstance,
+      probePort: opts.probePort,
+      runDmSend: opts.runDmSend,
+    },
   );
   return { clock, net, provider };
 }
@@ -179,6 +206,31 @@ describe('logged-out honesty (payloads captured from a real xiaohongshu-mcp)', (
     assert.equal(net.count('get_feed_detail'), 0, 'cached logged-out state short-circuits the next read');
   });
 
+  it('reads that return content keep a verified session alive; empty reads still re-probe', async () => {
+    const note = { noteId: 'n1', xsecToken: 'tok', title: '想买车', desc: '求推荐', user: { userId: 'u1', nickname: '路人' }, interactInfo: {} };
+    const server: Server = {
+      loggedIn: true,
+      handlers: {
+        search_feeds: () => text(JSON.stringify({ feeds: [FEED] })),
+        get_feed_detail: () => text(JSON.stringify({ data: { note, comments: { list: [] } } })),
+      },
+    };
+    const { provider, net, clock } = setup({ [RESEARCH]: server });
+    for (const q of ['a', 'b', 'c']) {
+      assert.ok((await provider.searchNotes(q)).ok);
+      clock.advance({ ms: LOGIN_CACHE_TTL_MS * 0.7 });
+    }
+    assert.equal(net.count('check_login_status'), 1, 'successful reads renewed the logged-in state (2.1 × TTL, one probe)');
+    const both = await provider.getNoteWithComments({ platform_post_id: 'n1', xsec_token: 'tok' }, { limit: 20 });
+    assert.ok(both.ok && both.data.comments.length === 0);
+    assert.equal(net.count('check_login_status'), 1, 'a note with no comments is a real empty section, not a login problem');
+
+    server.handlers.search_feeds = () => text(JSON.stringify({ feeds: [] }));
+    clock.advance({ seconds: 1 });
+    await provider.searchNotes('d');
+    assert.equal(net.count('check_login_status'), 2, 'an empty read is re-verified and renews nothing');
+  });
+
   it('an unreachable endpoint is UNAVAILABLE (retryable), never REQUIRES_AUTH', async () => {
     const { provider } = setup({ [RESEARCH]: { loggedIn: false, down: true, handlers: {} } });
     const res = await provider.searchNotes('宝马i3');
@@ -199,7 +251,7 @@ describe('auth API', () => {
     const s1 = await out.provider.auth.status('xhs-hz-i3');
     assert.ok(s1.ok);
     if (s1.ok) {
-      assert.deepEqual({ ...s1.data, detail: undefined }, { logged_in: false, username: null, platform_user_id: null, red_id: null, detail: undefined, endpoint_label: 'account xhs-hz-i3' });
+      assert.deepEqual({ ...s1.data, detail: undefined }, { logged_in: false, username: null, platform_user_id: null, red_id: null, profile: null, detail: undefined, endpoint_label: 'account xhs-hz-i3' });
       assert.match(s1.data.detail, /未登录/);
     }
     assert.equal(out.net.count('get_my_profile'), 1, 'a logged-out report is verified against the profile tool');
@@ -213,8 +265,11 @@ describe('auth API', () => {
       assert.equal(s2.data.platform_user_id, 'self-001');
       assert.equal(s2.data.red_id, '950001');
       assert.match(s2.data.detail, /verified via get_my_profile/);
+      assert.equal(s2.data.profile?.nickname, 'i3电车研究所');
+      assert.equal(s2.data.profile?.notes[0]?.platform_note_id, 'own-1');
     }
-    await inn.provider.auth.status('xhs-hz-i3');
+    const cachedStatus = await inn.provider.auth.status('xhs-hz-i3');
+    assert.ok(cachedStatus.ok && cachedStatus.data.profile?.red_id === '950001', 'the cached identity carries the profile too');
     assert.equal(inn.net.count('get_my_profile'), 1, 'identity cached for the same nickname');
     assert.equal(inn.net.count('check_login_status'), 2, 'status always probes login live');
     assert.equal(inn.net.calls.find((c) => c.tool === 'get_my_profile')?.url, I3);
@@ -335,8 +390,568 @@ describe('DB-configured endpoints', () => {
     assert.ok(provider.auth, 'live provider exposes the auth API');
   });
 
+  it('profileFromMyProfile reads avatar, bio, counts and own notes; empty web counts stay unknown (null), never 0', () => {
+    // Shape of a real get_my_profile payload (values synthetic).
+    const payload = {
+      userBasicInfo: { gender: 0, ipLocation: '', desc: '分享选车用车', imageb: 'https://sns-avatar-qc.xhscdn.com/avatar/abc', images: 'https://sns-avatar-qc.xhscdn.com/avatar/abc-small', nickname: '测试车主', redId: '123456' },
+      interactions: [
+        { type: 'follows', name: '关注', count: '78' },
+        { type: 'fans', name: '粉丝', count: '1.2万' },
+        { type: 'interaction', name: '获赞与收藏', count: '34' },
+      ],
+      feeds: [
+        {
+          xsecToken: 'tok=1', id: 'note-1', modelType: '',
+          noteCard: { displayTitle: '提车记', user: { userId: 'u-self' }, interactInfo: { likedCount: '27', collectedCount: '', commentCount: '' }, cover: { url: '', urlPre: 'http://sns-webpic-qc.xhscdn.com/pre', urlDefault: 'http://sns-webpic-qc.xhscdn.com/default' } },
+        },
+      ],
+    };
+    assert.deepEqual(profileFromMyProfile(payload), {
+      nickname: '测试车主',
+      red_id: '123456',
+      avatar_url: 'https://sns-avatar-qc.xhscdn.com/avatar/abc',
+      bio: '分享选车用车',
+      ip_location: null,
+      follows: 78,
+      fans: 12000,
+      liked_and_collected: 34,
+      notes: [
+        {
+          platform_note_id: 'note-1',
+          title: '提车记',
+          // the token is kept as its own field: reading a note's body needs it (账号语言学习 reads its own history)
+          xsec_token: 'tok=1',
+          url: 'https://www.xiaohongshu.com/explore/note-1?xsec_token=tok%3D1',
+          cover_url: 'http://sns-webpic-qc.xhscdn.com/default',
+          liked_count: 27,
+          collected_count: null,
+          comment_count: null,
+        },
+      ],
+    });
+    assert.deepEqual(profileFromMyProfile({ userBasicInfo: {}, feeds: [] }), {
+      nickname: null, red_id: null, avatar_url: null, bio: null, ip_location: null, follows: null, fans: null, liked_and_collected: null, notes: [],
+    });
+  });
+
   it('identityFromMyProfile reads redId and the user id of own notes', () => {
     assert.deepEqual(identityFromMyProfile(MY_PROFILE), { nickname: 'i3电车研究所', red_id: '950001', platform_user_id: 'self-001' });
     assert.deepEqual(identityFromMyProfile({ data: { userBasicInfo: { nickname: 'n' }, feeds: [] } }), { nickname: 'n', red_id: null, platform_user_id: null });
+  });
+});
+
+const qrServer = (): Server => ({
+  loggedIn: false,
+  handlers: {
+    get_login_qrcode: () => ({ content: [{ type: 'text', text: '请用小红书 App 扫码登录 👇' }, { type: 'image', mimeType: 'image/png', data: PNG_BASE64 }] }),
+    get_my_profile: () => LOGGED_OUT.get_my_profile,
+  },
+});
+
+/** Wraps the fake network: every tools/call takes a few ms and the peak overlap per instance URL is recorded. */
+function overlapTracker() {
+  const inFlight = new Map<string, number>();
+  const peak = new Map<string, number>();
+  let globalInFlight = 0;
+  let globalPeak = 0;
+  const wrap = (inner: typeof fetch) =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      const isCall = String(init?.body ?? '').includes('"tools/call"');
+      if (!isCall) return inner(input, init);
+      const url = String(input);
+      inFlight.set(url, (inFlight.get(url) ?? 0) + 1);
+      peak.set(url, Math.max(peak.get(url) ?? 0, inFlight.get(url)!));
+      globalPeak = Math.max(globalPeak, ++globalInFlight);
+      try {
+        await new Promise((r) => setTimeout(r, 5));
+        return await inner(input, init);
+      } finally {
+        inFlight.set(url, inFlight.get(url)! - 1);
+        globalInFlight--;
+      }
+    }) as typeof fetch;
+  return { wrap, peak, globalPeak: () => globalPeak };
+}
+
+describe('one call at a time per instance', () => {
+  it('tool calls on one instance never overlap (a failing call does not block the queue); different instances run in parallel', async () => {
+    const tracker = overlapTracker();
+    const research: Server = { loggedIn: true, handlers: {} };
+    const i3: Server = { loggedIn: true, handlers: { get_my_profile: () => text('boom', true) } };
+    const { provider, net } = setup({ [RESEARCH]: research, [I3]: i3 }, { fetchImpl: tracker.wrap });
+    const results = await Promise.all([
+      provider.capabilities('xhs-hz-i3'),
+      provider.capabilities('xhs-hz-i3'),
+      provider.auth.status('xhs-hz-i3'), // get_my_profile fails on this instance
+      provider.capabilities('xhs-hz-i3'),
+      provider.capabilities(null),
+      provider.capabilities(null),
+    ]);
+    assert.equal(results.length, 6);
+    assert.equal(tracker.peak.get(I3), 1, 'never two browser calls at once on the account instance');
+    assert.equal(tracker.peak.get(RESEARCH), 1, 'never two browser calls at once on the research instance');
+    assert.equal(tracker.globalPeak(), 2, 'the two instances are independent');
+    assert.ok(net.count('check_login_status') >= 5 && net.count('get_my_profile') === 1, 'every queued call still ran after the failure');
+  });
+
+  it('concurrent login-status requests for one instance share a single live probe', async () => {
+    const server: Server = { loggedIn: true, handlers: { get_my_profile: () => text(JSON.stringify(MY_PROFILE)) } };
+    const { provider, net } = setup({ [I3]: server });
+    const all = await Promise.all([provider.auth.status('xhs-hz-i3'), provider.auth.status('xhs-hz-i3'), provider.auth.status('xhs-hz-i3')]);
+    assert.ok(all.every((r) => r.ok && r.data.logged_in && r.data.platform_user_id === 'self-001'));
+    assert.equal(net.count('check_login_status'), 1);
+    assert.equal(net.count('get_my_profile'), 1);
+    await provider.auth.status('xhs-hz-i3');
+    assert.equal(net.count('check_login_status'), 2, 'a later request probes again (login checks are never reused)');
+  });
+});
+
+describe('pending login', () => {
+  it('while a QR login is pending, a logged-out status skips get_my_profile; afterwards the stale-selector check resumes', async () => {
+    const { provider, net, clock } = setup({ [I3]: qrServer() });
+    const qr = await provider.auth.loginQrcode('xhs-hz-i3');
+    assert.ok(qr.ok && !qr.data.already_logged_in);
+    for (let i = 0; i < 3; i++) {
+      const s = await provider.auth.status('xhs-hz-i3');
+      assert.ok(s.ok && !s.data.logged_in);
+      if (s.ok) assert.match(s.data.detail, /login pending; identity check skipped/);
+    }
+    assert.equal(net.count('get_my_profile'), 0, 'no 60 s profile call while the operator is scanning');
+    assert.equal(net.count('check_login_status'), 3, 'the login itself is still probed live every time');
+    clock.advance({ ms: LOGIN_QRCODE_TTL_MS + 1 });
+    const after = await provider.auth.status('xhs-hz-i3');
+    assert.ok(after.ok && !after.data.logged_in);
+    assert.equal(net.count('get_my_profile'), 1, 'QR expired: a logged-out report is verified against the profile again');
+  });
+
+  it('a login seen by the probe ends the pending state', async () => {
+    const server: Server = { ...qrServer(), handlers: { ...qrServer().handlers, get_my_profile: () => text(JSON.stringify(MY_PROFILE)) } };
+    const { provider, net } = setup({ [I3]: server });
+    await provider.auth.loginQrcode('xhs-hz-i3');
+    server.loggedIn = true;
+    const s = await provider.auth.status('xhs-hz-i3');
+    assert.ok(s.ok && s.data.logged_in && s.data.platform_user_id === 'self-001');
+    server.loggedIn = false; // logged out again later: back to the normal stale-selector verification
+    await provider.auth.status('xhs-hz-i3');
+    assert.equal(net.count('get_my_profile'), 2);
+  });
+});
+
+describe('login window (visible browser)', () => {
+  function fixture() {
+    const dir = mkdtempSync(join(tmpdir(), 'xhs-login-'));
+    const helper = join(dir, 'xhs-visible-login');
+    writeFileSync(helper, '#!/bin/sh\nexit 0\n');
+    chmodSync(helper, 0o755);
+    const dataDir = join(dir, 'fleet');
+    mkdirSync(join(dataDir, 'research'), { recursive: true });
+    mkdirSync(join(dataDir, 'xhs-hz-i3'), { recursive: true });
+    const requests: VisibleLoginRequest[] = [];
+    let finish: (o: VisibleLoginOutcome) => void = () => {};
+    const runner: VisibleLoginRunner = (req) => {
+      requests.push(req);
+      return new Promise((resolve) => (finish = resolve));
+    };
+    return { dir, helper, dataDir, requests, runner, finish: (o: VisibleLoginOutcome) => finish(o) };
+  }
+  const settle = () => new Promise((r) => setImmediate(r));
+
+  it('is absent unless configured', () => {
+    const { provider } = setup({ [RESEARCH]: loggedOutServer() });
+    assert.equal(provider.auth.visibleLogin, undefined);
+  });
+
+  it('opens one window per instance, writes that instance’s cookies file, and reports the outcome', async () => {
+    const f = fixture();
+    const server = loggedOutServer();
+    const { provider, net, clock } = setup(
+      { [RESEARCH]: server, [I3]: loggedOutServer() },
+      { cfg: { visible_login: { helper_path: f.helper, data_dir: f.dataDir, timeout_ms: 120_000 } }, runVisibleLogin: f.runner },
+    );
+    const api = provider.auth.visibleLogin;
+    assert.ok(api);
+    assert.equal(api.status(null), null);
+    const job = await api.start(null);
+    assert.ok(job.ok);
+    if (job.ok) {
+      assert.equal(job.data.state, 'running');
+      assert.equal(job.data.instance, 'research');
+      assert.equal(job.data.expires_at, new Date(clock.now().getTime() + 120_000).toISOString());
+    }
+    assert.deepEqual(f.requests, [{ helperPath: f.helper, cookiesPath: join(f.dataDir, 'research', 'cookies.json'), timeoutMs: 120_000 }]);
+    const again = await api.start(null);
+    assert.ok(again.ok && again.data.state === 'running');
+    assert.equal(f.requests.length, 1, 'a running window is not opened twice');
+
+    const pending = await provider.auth.status(null);
+    assert.ok(pending.ok && !pending.data.logged_in);
+    assert.equal(net.count('get_my_profile'), 0, 'no profile probing while the window waits for the scan');
+
+    server.loggedIn = true; // the helper wrote the instance's cookies
+    f.finish({ ok: true, detail: 'LOGIN_OK: logged in; 30 cookies saved' });
+    await settle();
+    const done = api.status(null);
+    assert.equal(done?.state, 'succeeded');
+    assert.equal(done?.detail, 'LOGIN_OK: logged in; 30 cookies saved');
+    assert.ok(done?.finished_at);
+    const search = await provider.searchNotes('宝马i3');
+    assert.ok(search.ok || search.status !== 'REQUIRES_AUTH', 'login caches were dropped: the new session is probed, not the cached logout');
+
+    const acct = await api.start('xhs-hz-i3');
+    assert.ok(acct.ok && acct.data.instance === 'xhs-hz-i3');
+    assert.equal(f.requests[1]?.cookiesPath, join(f.dataDir, 'xhs-hz-i3', 'cookies.json'));
+    f.finish({ ok: false, detail: 'LOGIN_TIMEOUT: no confirmed login within 5m0s' });
+    await settle();
+    assert.equal(api.status('xhs-hz-i3')?.state, 'failed');
+    assert.match(api.status('xhs-hz-i3')?.detail ?? '', /LOGIN_TIMEOUT/);
+  });
+
+  it('refuses remote instances, missing helpers / state dirs and accounts without an instance — with the fix in the reason', async () => {
+    const f = fixture();
+    const remote = 'http://10.0.0.5:18062/mcp';
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer(), [remote]: loggedOutServer() },
+      {
+        cfg: { account_endpoints: { 'xhs-hz-i3': { url: I3 }, 'xhs-remote': { url: remote } }, visible_login: { helper_path: f.helper, data_dir: f.dataDir } },
+        runVisibleLogin: f.runner,
+      },
+    );
+    const api = provider.auth.visibleLogin!;
+    const r1 = await api.start('xhs-remote');
+    assert.ok(!r1.ok && r1.status === 'UNAVAILABLE');
+    if (!r1.ok) assert.match(r1.reason, /not on this host.*xhs-mcp-fleet\.sh login xhs-remote/);
+    const r2 = await api.start('acc-without-endpoint');
+    assert.deepEqual(r2, { ok: false, status: 'UNAVAILABLE', reason: NO_ENDPOINT_REASON, retryable: false });
+
+    const noDir = setup({ [RESEARCH]: loggedOutServer() }, { cfg: { visible_login: { helper_path: f.helper, data_dir: join(f.dir, 'nope') } }, runVisibleLogin: f.runner });
+    const r3 = await noDir.provider.auth.visibleLogin!.start(null);
+    assert.ok(!r3.ok && /no state directory .*nope.research/.test(r3.reason));
+    const noHelper = setup({ [RESEARCH]: loggedOutServer() }, { cfg: { visible_login: { helper_path: join(f.dir, 'missing'), data_dir: f.dataDir } }, runVisibleLogin: f.runner });
+    const r4 = await noHelper.provider.auth.visibleLogin!.start(null);
+    assert.ok(!r4.ok && /build-login-helper/.test(r4.reason));
+    assert.equal(f.requests.length, 0, 'nothing was launched');
+  });
+
+  it('without a research instance, the research login targets the instance public reads fall back to', async () => {
+    const f = fixture();
+    const { provider } = setup({ [I3]: loggedOutServer() }, { cfg: { research_endpoint: undefined, visible_login: { helper_path: f.helper, data_dir: f.dataDir } }, runVisibleLogin: f.runner });
+    const job = await provider.auth.visibleLogin!.start(null);
+    assert.ok(job.ok && job.data.instance === 'xhs-hz-i3');
+    assert.equal(f.requests[0]?.cookiesPath, join(f.dataDir, 'xhs-hz-i3', 'cookies.json'), 'the cookies the fallback instance actually reads');
+  });
+
+  it('parses the helper verdict from its log output', () => {
+    assert.deepEqual(parseHelperOutput('time="x" level=info msg="login window open"\ntime="y" level=info msg="LOGIN_OK: logged in; 31 cookies saved to /d/cookies.json"\n', 0), {
+      ok: true,
+      detail: 'LOGIN_OK: logged in; 31 cookies saved to /d/cookies.json',
+    });
+    assert.equal(parseHelperOutput('time="y" level=error msg="LOGIN_TIMEOUT: no confirmed login within 5m0s"', 2).ok, false);
+    const crashed = parseHelperOutput('panic: {-32001 Session with given id not found. }\n', 2);
+    assert.equal(crashed.ok, false);
+    assert.match(crashed.detail, /exited \(code 2\) without a result: panic/);
+  });
+
+  it('env: XHS_LOGIN_HELPER and XHS_MCP_DATA_DIR go together and become absolute paths', () => {
+    const base = { XHS_PROVIDER: 'mcp', XHS_MCP_RESEARCH_URL: RESEARCH };
+    assert.throws(() => xhsProviderConfigFromEnv({ ...base, XHS_LOGIN_HELPER: '/opt/xhs/xhs-visible-login' }), /XHS_MCP_DATA_DIR/);
+    assert.throws(() => xhsProviderConfigFromEnv({ ...base, XHS_MCP_DATA_DIR: './data/xhs-mcp' }), /XHS_LOGIN_HELPER/);
+    const cfg = xhsProviderConfigFromEnv({ ...base, XHS_LOGIN_HELPER: '/opt/xhs/xhs-visible-login', XHS_MCP_DATA_DIR: './data/xhs-mcp' });
+    assert.ok(cfg.kind === 'mcp');
+    if (cfg.kind === 'mcp') {
+      assert.equal(cfg.mcp.visible_login?.helper_path, '/opt/xhs/xhs-visible-login');
+      assert.equal(cfg.mcp.visible_login?.data_dir, join(process.cwd(), 'data/xhs-mcp'));
+    }
+    const plain = xhsProviderConfigFromEnv(base);
+    assert.ok(plain.kind === 'mcp' && plain.mcp.visible_login === undefined);
+  });
+});
+
+describe('local instances (starting an account’s own instance from the console)', () => {
+  function fixture() {
+    const dir = mkdtempSync(join(tmpdir(), 'xhs-instances-'));
+    const binary = join(dir, 'xiaohongshu-mcp');
+    writeFileSync(binary, '#!/bin/sh\nexit 0\n');
+    chmodSync(binary, 0o755);
+    const dataDir = join(dir, 'fleet');
+    mkdirSync(dataDir, { recursive: true });
+    const specs: LocalInstanceSpec[] = [];
+    const runner: LocalInstanceRunner = (spec) => {
+      specs.push(spec);
+      return Promise.resolve({ ok: true, pid: 4242, detail: `实例已在 ${spec.bind}:${spec.port} 启动` });
+    };
+    const local = { binary_path: binary, data_dir: dataDir, bind: '127.0.0.1', base_port: 18060, token: 'fleet-token' };
+    return { dir, binary, dataDir, specs, runner, local };
+  }
+  /** every port free except the ones already listening in this deployment */
+  const freeExcept = (busy: number[]): PortProbe => (_bind, port) => Promise.resolve(!busy.includes(port));
+
+  it('is absent unless this host was configured to run instances', () => {
+    const { provider } = setup({ [RESEARCH]: loggedOutServer() });
+    assert.equal(provider.auth.localInstance, undefined);
+  });
+
+  it('starts the account’s own instance on the first free port, with its own cookies dir and the fleet token', async () => {
+    const f = fixture();
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: {}, local_instances: f.local }, startLocalInstance: f.runner, probePort: freeExcept([18060, 18061]) },
+    );
+    const api = provider.auth.localInstance;
+    assert.ok(api);
+    const res = await api.start('xhs-new-sales');
+    assert.ok(res.ok);
+    if (res.ok) {
+      assert.equal(res.data.url, 'http://127.0.0.1:18062/mcp', 'the research port and a busy one are skipped');
+      assert.equal(res.data.port, 18062);
+      assert.equal(res.data.instance, 'xhs-new-sales');
+      assert.equal(res.data.started, true);
+      assert.equal(res.data.pid, 4242);
+    }
+    assert.deepEqual(f.specs, [
+      { binaryPath: f.binary, instanceDir: join(f.dataDir, 'xhs-new-sales'), bind: '127.0.0.1', port: 18062, token: 'fleet-token' },
+    ]);
+  });
+
+  it('never lands on a port another account is bound to, and never starts two processes for one account', async () => {
+    const f = fixture();
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: { 'xhs-hz-i3': { url: I3 } }, local_instances: f.local }, startLocalInstance: f.runner, probePort: freeExcept([18060]) },
+    );
+    const api = provider.auth.localInstance!;
+    // 18061 is the env account's instance, 18062 belongs to an account bound in the database
+    const res = await api.start('xhs-new-sales', { reserved_ports: [18062] });
+    assert.ok(res.ok && res.data.port === 18063);
+
+    const [a, b] = await Promise.all([api.start('xhs-second'), api.start('xhs-second')]);
+    assert.ok(a.ok && b.ok);
+    if (a.ok && b.ok) assert.equal(a.data.port, b.data.port, 'a double click waits for the first start instead of starting a second process');
+    assert.equal(f.specs.filter((s) => s.instanceDir.endsWith('xhs-second')).length, 1);
+  });
+
+  it('reuses an instance that is already running for this account instead of starting a second one', async () => {
+    const f = fixture();
+    const dir = join(f.dataDir, 'xhs-running');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'pid'), `${process.pid}\n`);
+    writeFileSync(join(dir, 'port'), '18064\n');
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer() },
+      {
+        cfg: { account_endpoints: {}, local_instances: f.local },
+        startLocalInstance: f.runner,
+        probePort: freeExcept([]),
+        fetchImpl: (inner) =>
+          (async (input: string | URL | Request, init?: RequestInit) =>
+            String(input) === 'http://127.0.0.1:18064/health' ? new Response('{"status":"healthy"}', { status: 200 }) : inner(input, init)) as typeof fetch,
+      },
+    );
+    const res = await provider.auth.localInstance!.start('xhs-running');
+    assert.ok(res.ok);
+    if (res.ok) {
+      assert.equal(res.data.started, false, 'the running instance is reused');
+      assert.equal(res.data.url, 'http://127.0.0.1:18064/mcp');
+      assert.equal(res.data.pid, process.pid);
+    }
+    assert.equal(f.specs.length, 0, 'nothing was launched');
+  });
+
+  it('refuses to start a second process when this account’s instance process is alive but silent', async () => {
+    const f = fixture();
+    const dir = join(f.dataDir, 'xhs-stuck');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'pid'), `${process.pid}\n`);
+    writeFileSync(join(dir, 'port'), '18065\n');
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: {}, local_instances: f.local }, startLocalInstance: f.runner, probePort: freeExcept([]) },
+    );
+    const res = await provider.auth.localInstance!.start('xhs-stuck');
+    assert.ok(!res.ok && res.status === 'UNAVAILABLE');
+    if (!res.ok) assert.match(res.reason, /still running \(pid \d+, port 18065 not answering/);
+    assert.equal(f.specs.length, 0, 'the running session is never given a second process');
+  });
+
+  it('reuses a fleet-script instance through the port the account is already bound to', async () => {
+    const f = fixture();
+    const dir = join(f.dataDir, 'xhs-fleet');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'pid'), `${process.pid}\n`); // an older fleet script wrote no port file
+    const { provider } = setup(
+      { [RESEARCH]: loggedOutServer() },
+      {
+        cfg: { account_endpoints: {}, local_instances: f.local },
+        startLocalInstance: f.runner,
+        probePort: freeExcept([]),
+        fetchImpl: (inner) =>
+          (async (input: string | URL | Request, init?: RequestInit) =>
+            String(input) === 'http://127.0.0.1:18066/health' ? new Response('ok', { status: 200 }) : inner(input, init)) as typeof fetch,
+      },
+    );
+    const res = await provider.auth.localInstance!.start('xhs-fleet', { known_port: 18066 });
+    assert.ok(res.ok && res.data.started === false && res.data.port === 18066);
+    assert.equal(f.specs.length, 0);
+  });
+
+  it('refuses env-pinned accounts, a missing binary and instances that would not be on this host', async () => {
+    const f = fixture();
+    const pinned = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: { 'xhs-hz-i3': { url: I3 } }, local_instances: f.local }, startLocalInstance: f.runner, probePort: freeExcept([]) },
+    );
+    const r1 = await pinned.provider.auth.localInstance!.start('xhs-hz-i3');
+    assert.ok(!r1.ok && r1.status === 'UNAVAILABLE');
+    if (!r1.ok) assert.match(r1.reason, /XHS_MCP_ACCOUNTS/);
+
+    const remote = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: {}, local_instances: { ...f.local, bind: '0.0.0.0' } }, startLocalInstance: f.runner, probePort: freeExcept([]) },
+    );
+    const r2 = await remote.provider.auth.localInstance!.start('xhs-new');
+    assert.ok(!r2.ok && /not this host/.test(r2.reason));
+
+    const noBinary = setup(
+      { [RESEARCH]: loggedOutServer() },
+      { cfg: { account_endpoints: {}, local_instances: { ...f.local, binary_path: join(f.dir, 'missing') } }, startLocalInstance: f.runner, probePort: freeExcept([]) },
+    );
+    const r3 = await noBinary.provider.auth.localInstance!.start('xhs-new');
+    assert.ok(!r3.ok && /XHS_MCP_BIN/.test(r3.reason));
+    assert.equal(f.specs.length, 0, 'nothing was launched');
+  });
+
+  it('port picking prefers the instance’s own last port and gives up instead of wrapping into foreign ports', async () => {
+    assert.equal(await findInstancePort('127.0.0.1', 18060, new Set(), 18067, freeExcept([])), 18067);
+    assert.equal(await findInstancePort('127.0.0.1', 18060, new Set([18067]), 18067, freeExcept([])), 18061, 'a port another account holds is not reused');
+    assert.equal(await findInstancePort('127.0.0.1', 18060, new Set(), 18067, freeExcept([18067])), 18061, 'busy again: the next free port');
+    assert.equal(await findInstancePort('127.0.0.1', 18060, new Set(), null, () => Promise.resolve(false)), null);
+    assert.equal(isLoopbackHost('127.0.0.1'), true);
+    assert.equal(isLoopbackHost('localhost'), true);
+    assert.equal(isLoopbackHost('10.0.0.5'), false);
+  });
+
+  it('env: XHS_MCP_BIN needs a state dir and a token, and pairs with the login window', () => {
+    const base = { XHS_PROVIDER: 'mcp', XHS_MCP_RESEARCH_URL: RESEARCH, XHS_MCP_TOKEN: 'tok' };
+    assert.throws(() => xhsProviderConfigFromEnv({ ...base, XHS_MCP_BIN: '/opt/xhs/xiaohongshu-mcp' }), /XHS_MCP_DATA_DIR/);
+    assert.throws(
+      () => xhsProviderConfigFromEnv({ XHS_PROVIDER: 'mcp', XHS_MCP_BIN: '/opt/xhs/xiaohongshu-mcp', XHS_MCP_DATA_DIR: './data/xhs-mcp' }),
+      /XHS_MCP_TOKEN/,
+    );
+    const cfg = xhsProviderConfigFromEnv({ ...base, XHS_MCP_BIN: '/opt/xhs/xiaohongshu-mcp', XHS_MCP_DATA_DIR: './data/xhs-mcp', XHS_MCP_BASE_PORT: '18070' });
+    assert.ok(cfg.kind === 'mcp');
+    if (cfg.kind === 'mcp') {
+      assert.deepEqual(cfg.mcp.local_instances, {
+        binary_path: '/opt/xhs/xiaohongshu-mcp',
+        data_dir: join(process.cwd(), 'data/xhs-mcp'),
+        bind: '127.0.0.1',
+        base_port: 18070,
+        token: 'tok',
+      });
+      assert.equal(cfg.mcp.visible_login, undefined, 'the state dir alone does not claim a login window');
+    }
+    assert.equal((xhsProviderConfigFromEnv(base) as { mcp: { local_instances?: unknown } }).mcp.local_instances, undefined);
+  });
+});
+
+describe('sending a DM from the account’s own session (opt-in)', () => {
+  function fixture(outcome: DmSendOutcome = { state: 'sent', message_id: 'bubble-9', peer_avatar_url: 'https://sns-avatar-qc.xhscdn.com/avatar/abc', detail: '已在会话中确认' }) {
+    const dir = mkdtempSync(join(tmpdir(), 'xhs-dm-'));
+    const helper = join(dir, 'xhs-dm-send');
+    writeFileSync(helper, '#!/bin/sh\nexit 0\n');
+    chmodSync(helper, 0o755);
+    const dataDir = join(dir, 'fleet');
+    mkdirSync(join(dataDir, 'xhs-hz-i3'), { recursive: true });
+    writeFileSync(join(dataDir, 'xhs-hz-i3', 'cookies.json'), '[]');
+    const requests: DmSendRequest[] = [];
+    const runner: DmSendRunner = (req) => {
+      requests.push(req);
+      return Promise.resolve(outcome);
+    };
+    return { dir, helper, dataDir, requests, runner, cfg: { helper_path: helper, data_dir: dataDir } };
+  }
+  const capabilityOf = async (provider: McpXhsProvider, accountId: string) => (await provider.capabilities(accountId)).capabilities.send_messages;
+
+  it('stays unavailable — with the documented reason — until a deployment opts in', async () => {
+    const { provider } = setup({ [RESEARCH]: loggedOutServer(), [I3]: loggedOutServer() });
+    const res = await provider.sendMessage('xhs-hz-i3', 'buyer-1', '您好');
+    assert.deepEqual(res, { ok: false, status: 'UNAVAILABLE', reason: MCP_DM_REASONS.send_messages, retryable: false });
+    const cap = await capabilityOf(provider, 'xhs-hz-i3');
+    assert.equal(cap?.status, 'UNAVAILABLE');
+    assert.equal(cap?.reason, MCP_DM_REASONS.send_messages);
+  });
+
+  it('sends through the account’s own cookies and only reports SENT with the id read back in the conversation', async () => {
+    const f = fixture();
+    const { provider } = setup({ [RESEARCH]: loggedOutServer(), [I3]: loggedOutServer() }, { cfg: { dm_sender: f.cfg }, runDmSend: f.runner });
+    const cap = await capabilityOf(provider, 'xhs-hz-i3');
+    assert.equal(cap?.status, 'AVAILABLE');
+    assert.match(cap?.reason ?? '', /自己的登录会话/);
+
+    const res = await provider.sendMessage('xhs-hz-i3', 'buyer-1', '  您好，看到您在看宝马i3  ');
+    assert.ok(res.ok);
+    if (res.ok) assert.equal(res.data.provider_message_id, 'xhs-dm:bubble-9');
+    assert.deepEqual(f.requests.map((r) => ({ cookies: r.cookiesPath, profile: r.profileUrl, text: r.text })), [
+      {
+        cookies: join(f.dataDir, 'xhs-hz-i3', 'cookies.json'),
+        profile: 'https://www.xiaohongshu.com/user/profile/buyer-1',
+        text: '您好，看到您在看宝马i3',
+      },
+    ]);
+  });
+
+  it('an unknown outcome is REQUIRES_REVIEW and never retryable; a pre-send failure may be retried', async () => {
+    const unknown = fixture({ state: 'unknown', message_id: null, peer_avatar_url: null, detail: '提交后未能在会话中读回' });
+    const a = setup({ [RESEARCH]: loggedOutServer(), [I3]: loggedOutServer() }, { cfg: { dm_sender: unknown.cfg }, runDmSend: unknown.runner });
+    const r1 = await a.provider.sendMessage('xhs-hz-i3', 'buyer-1', '您好');
+    assert.ok(!r1.ok && r1.status === 'REQUIRES_REVIEW' && r1.retryable === false);
+    if (!r1.ok) assert.match(r1.reason, new RegExp(DM_SEND_UNKNOWN_MARK));
+
+    const failed = fixture({ state: 'failed', message_id: null, peer_avatar_url: null, detail: '主页上没有私信入口' });
+    const b = setup({ [RESEARCH]: loggedOutServer(), [I3]: loggedOutServer() }, { cfg: { dm_sender: failed.cfg }, runDmSend: failed.runner });
+    const r2 = await b.provider.sendMessage('xhs-hz-i3', 'buyer-1', '您好');
+    assert.ok(!r2.ok && r2.status === 'UNAVAILABLE' && r2.retryable === true, 'nothing was sent: this one may be tried again');
+  });
+
+  it('refuses a remote instance, a missing session file and an unknown DM tool on the instance', async () => {
+    const f = fixture();
+    const remoteUrl = 'http://10.0.0.9:18061/mcp';
+    const remote = setup(
+      { [RESEARCH]: loggedOutServer(), [remoteUrl]: loggedOutServer() },
+      { cfg: { account_endpoints: { 'xhs-hz-i3': { url: remoteUrl } }, dm_sender: f.cfg }, runDmSend: f.runner },
+    );
+    const r1 = await remote.provider.sendMessage('xhs-hz-i3', 'buyer-1', '您好');
+    assert.ok(!r1.ok && /其他机器/.test(r1.reason));
+    assert.equal((await capabilityOf(remote.provider, 'xhs-hz-i3'))?.status, 'UNAVAILABLE');
+
+    const noSession = setup(
+      { [RESEARCH]: loggedOutServer(), [I3]: loggedOutServer() },
+      { cfg: { dm_sender: { ...f.cfg, data_dir: join(f.dir, 'empty') } }, runDmSend: f.runner },
+    );
+    const r2 = await noSession.provider.sendMessage('xhs-hz-i3', 'buyer-1', '您好');
+    assert.ok(!r2.ok && r2.status === 'REQUIRES_AUTH');
+    assert.equal(f.requests.length, 0, 'nothing was sent');
+  });
+
+  it('parses the helper verdict, treating anything unrecognised as unknown', () => {
+    assert.deepEqual(parseSenderOutput('chat_button="div.chat"\nSEND_OK: msg-7\n', 0), { state: 'sent', message_id: 'msg-7', peer_avatar_url: null, detail: 'msg-7' });
+    const withFace = parseSenderOutput('peer_avatar=https://sns-avatar-qc.xhscdn.com/avatar/xyz?x=1\nSEND_OK: msg-8\n', 0);
+    assert.equal(withFace.peer_avatar_url, 'https://sns-avatar-qc.xhscdn.com/avatar/xyz?x=1', 'the recipient’s avatar comes back with the send');
+    assert.equal(parseSenderOutput('peer_avatar=https://evil.example.com/a.png\nSEND_OK: msg-9\n', 0).peer_avatar_url, null, 'only Xiaohongshu’s own CDN is accepted');
+    assert.equal(parseSenderOutput('DRYRUN_OK: conversation reachable', 0).state, 'dry_run');
+    assert.equal(parseSenderOutput('SEND_FAILED: no 私信 control on the profile', 1).state, 'failed');
+    assert.equal(parseSenderOutput('SEND_UNKNOWN: crashed while sending', 3).state, 'unknown');
+    const silent = parseSenderOutput('panic: browser closed\n', 2);
+    assert.equal(silent.state, 'unknown', 'a crash after typing is never reported as a failure');
+    assert.match(silent.detail, /code 2/);
+  });
+
+  it('env: XHS_DM_SENDER needs the state dir and is absent by default', () => {
+    const base = { XHS_PROVIDER: 'mcp', XHS_MCP_RESEARCH_URL: RESEARCH, XHS_MCP_TOKEN: 'tok' };
+    assert.throws(() => xhsProviderConfigFromEnv({ ...base, XHS_DM_SENDER: '/opt/xhs/xhs-dm-send' }), /XHS_MCP_DATA_DIR/);
+    const cfg = xhsProviderConfigFromEnv({ ...base, XHS_DM_SENDER: '/opt/xhs/xhs-dm-send', XHS_MCP_DATA_DIR: './data/xhs-mcp', XHS_DM_SEND_TIMEOUT_MS: '90000' });
+    assert.ok(cfg.kind === 'mcp');
+    if (cfg.kind === 'mcp') {
+      assert.deepEqual(cfg.mcp.dm_sender, { helper_path: '/opt/xhs/xhs-dm-send', data_dir: join(process.cwd(), 'data/xhs-mcp'), timeout_ms: 90_000 });
+    }
+    assert.equal((xhsProviderConfigFromEnv(base) as { mcp: { dm_sender?: unknown } }).mcp.dm_sender, undefined, 'off unless a deployment sets it');
   });
 });

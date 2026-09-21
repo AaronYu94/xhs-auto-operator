@@ -281,7 +281,7 @@ export const BRANDS: readonly BrandInfo[] = [
 ];
 
 export type Powertrain = 'EV' | 'ICE' | 'PHEV' | 'EREV';
-export type BodyType = 'sedan' | 'suv';
+export type BodyType = 'sedan' | 'suv' | 'mpv';
 
 export interface ModelInfo {
   brand: string;
@@ -440,6 +440,18 @@ export const MODELS: readonly ModelInfo[] = [
   // Li Auto
   { brand: 'Li Auto', model: 'L6', model_zh: 'L6', body: 'suv', powertrain: 'EREV', aliases: ['理想l6'] },
   { brand: 'Li Auto', model: 'L9', model_zh: 'L9', body: 'suv', powertrain: 'EREV', aliases: ['理想l9'] },
+  // XPeng — dealer brand (line-up read from xiaopeng.com 官方参数配置表, 2026-09). Models with both a battery and a
+  // range-extender version are listed by their dominant powertrain; the trim rows in 车型库 carry the exact one.
+  { brand: 'XPeng', model: 'M03', model_zh: 'MONA M03', body: 'sedan', powertrain: 'EV', aliases: ['小鹏m03', 'mona m03', 'monam03', 'm03'] },
+  { brand: 'XPeng', model: 'L03', model_zh: 'MONA L03', body: 'suv', powertrain: 'EV', aliases: ['小鹏l03', 'mona l03', 'monal03', 'l03'] },
+  { brand: 'XPeng', model: 'P7+', model_zh: 'P7+', body: 'sedan', powertrain: 'EV', aliases: ['小鹏p7+', 'p7plus', 'p7 plus', 'p7＋', 'p7+'] },
+  { brand: 'XPeng', model: 'P7', model_zh: 'P7', body: 'sedan', powertrain: 'EV', aliases: ['小鹏p7', '全新p7', 'p7'] },
+  { brand: 'XPeng', model: 'G6', model_zh: 'G6', body: 'suv', powertrain: 'EV', aliases: ['小鹏g6', 'g6'] },
+  { brand: 'XPeng', model: 'G7', model_zh: 'G7', body: 'suv', powertrain: 'EV', aliases: ['小鹏g7', 'g7'] },
+  { brand: 'XPeng', model: 'G9L', model_zh: 'G9L', body: 'suv', powertrain: 'EV', aliases: ['小鹏g9l', 'g9l'] },
+  { brand: 'XPeng', model: 'G9', model_zh: 'G9', body: 'suv', powertrain: 'EV', aliases: ['小鹏g9', 'g9'] },
+  { brand: 'XPeng', model: 'GX', model_zh: 'GX', body: 'suv', powertrain: 'EREV', aliases: ['小鹏gx', 'gx'] },
+  { brand: 'XPeng', model: 'X9', model_zh: 'X9', body: 'mpv', powertrain: 'EREV', aliases: ['小鹏x9', 'x9'] },
 ];
 
 export interface TrimInfo {
@@ -469,6 +481,14 @@ const COMPETITOR_EDGES: readonly [string, readonly string[]][] = [
   ['5 Series', ['E-Class', 'A6L']],
   ['Model 3', ['SU7', 'Han', 'ET5']],
   ['Model Y', ['YU7', 'ES6']],
+  // XPeng: what buyers actually cross-shop these against, within the models this lexicon knows.
+  ['P7', ['Model 3', 'SU7', 'Han', 'ET5']],
+  ['P7+', ['Model 3', 'SU7', 'Han']],
+  ['G6', ['Model Y', 'YU7', 'ES6', 'L6']],
+  ['G7', ['Model Y', 'YU7', 'L6']],
+  ['G9', ['L9', 'YU7']],
+  ['G9L', ['L9']],
+  ['GX', ['L9']],
 ];
 
 const modelKey = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s_-]+/g, '');
@@ -1146,3 +1166,17 @@ export function anchorQuote(source: string, quote: string): string | null {
   const hit = findFirst(mapText(source), new RegExp(q.split(' ').map(escapeRe).join('\\s+')));
   return hit ? hit.quote : null;
 }
+
+/**
+ * Account names of dealer stores and their sales staff, by naming convention rather than by brand (Xiaohongshu store
+ * and staff accounts are named after the store or "<品牌>汽车 + separator + person"): '…销售服务中心', '…汽车…店',
+ * '…汽车城…', '<品牌>汽车 | 小李', '小王｜<城市><品牌>汽车', '<城市><品牌>汽车-小张', '…福利官', '销冠…', '…卖车日记'.
+ * Runs on NFKC + lower-cased text (full-width '｜' becomes '|'). Owner / creator names ('理想汽车车主 | 小王',
+ * '汽车博主-阿杰') are excluded from the separator form.
+ */
+export function isDealerAccountName(nickname: string | null | undefined): boolean {
+  return typeof nickname === 'string' && DEALER_ACCOUNT_NAME_RE.test(nickname.normalize('NFKC').toLowerCase());
+}
+
+export const DEALER_ACCOUNT_NAME_RE =
+  /销售服务中心|销售中心|汽车城|汽车[^|丨/\-—·]{0,12}(?:店|展厅|门店|4s)|4s店|展厅|福利官|销冠|卖车|购车顾问|置换专员|(?<!车主|博主|爱好者|粉丝|迷)汽车\s*[|丨/\-—·](?![^|丨/\-—·]*(?:车主|博主|测评|评测|爱好者))|[|丨/\-—·]\s*[^|丨/\-—·]{0,12}汽车$/;

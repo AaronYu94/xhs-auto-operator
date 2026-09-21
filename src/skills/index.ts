@@ -13,6 +13,7 @@ import { skill as leadDiscovery } from './acquisition/lead-discovery/index.ts';
 import { skill as leadResearch } from './acquisition/lead-research/index.ts';
 import { skill as leadScoring } from './acquisition/lead-scoring/index.ts';
 import { skill as accountStrategy } from './content/account-strategy/index.ts';
+import { skill as accountVoice } from './content/account-voice/index.ts';
 import { skill as contentPlanning } from './content/content-planning/index.ts';
 import { skill as contentReview } from './content/content-review/index.ts';
 import { skill as engagement } from './content/engagement/index.ts';
@@ -25,6 +26,8 @@ import { skill as analytics } from './operations/analytics/index.ts';
 import { skill as compliance } from './operations/compliance/index.ts';
 import { skill as crm } from './operations/crm/index.ts';
 import { skill as dealerBrain } from './operations/dealer-brain/index.ts';
+import { skill as notificationInbox } from './operations/notification-inbox/index.ts';
+import { skill as vehicleBrain } from './operations/vehicle-brain/index.ts';
 import { skill as optimization } from './operations/optimization/index.ts';
 import { skill as reporting } from './operations/reporting/index.ts';
 import { skill as automotiveMarketResearch } from './research/automotive-market-research/index.ts';
@@ -48,6 +51,7 @@ export const ALL_SKILLS: readonly AnySkill[] = [
   trendDetection,
   // content
   accountStrategy,
+  accountVoice,
   contentPlanning,
   postGeneration,
   contentReview,
@@ -69,9 +73,11 @@ export const ALL_SKILLS: readonly AnySkill[] = [
   appointment,
   // operations
   dealerBrain,
+  vehicleBrain,
   accountBrain,
   accountHealth,
   accountSessions,
+  notificationInbox,
   crm,
   compliance,
   analytics,

@@ -369,7 +369,7 @@ describe('analytics hardening: targeted regressions', () => {
     });
     lead = ctx.db.table('leads').update(lead.id, { primary_signal_id: sig.id });
     const card = buildLeadCard(ctx, lead);
-    assert.deepEqual(card.source, { type: 'comment', post_title: 'X3和GLC怎么选', url: 'https://www.xiaohongshu.com/explore/note-x3-glc-777', signal_at: TEST_NOW });
+    assert.deepEqual(card.source, { type: 'comment', post_title: 'X3和GLC怎么选', url: 'https://www.xiaohongshu.com/explore/note-x3-glc-777', signal_at: TEST_NOW, query_text: null, search_run_id: null, workflow_run_id: null, searched_at: null });
     assert.equal(card.location_label, 'IP属地：浙江', "commenter's IP, never the note author's 上海");
     const detail = getLeadDetail(ctx, lead.id);
     assert.equal(detail.signals[0].public_post?.id, pp.id);

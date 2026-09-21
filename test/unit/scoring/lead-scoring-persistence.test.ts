@@ -95,6 +95,7 @@ function insertLead(ctx: TestContext, groupId: string, dealerId: string, evidenc
     platform_user_id: newId('u'),
     username: '杭州买车的小李',
     profile_url: null,
+    avatar_url: null,
     stage: 'DISCOVERED',
     score: 0,
     tier: 'none',

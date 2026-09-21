@@ -1,7 +1,9 @@
+import { constants as fsConstants, accessSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Clock } from '../../core/clock.ts';
 import { DAY_MS } from '../../core/time.ts';
 import { ValidationError } from '../../core/errors.ts';
-import type { XhsCapability } from '../../core/types.ts';
+import { NOTIFICATION_TABS, type NotificationKind, type NotificationTab, type XhsCapability, type XhsOwnNote, type XhsOwnProfile } from '../../core/types.ts';
 import { v } from '../../core/validate.ts';
 import { McpError, McpHttpClient, type McpImageContent, type McpToolInfo } from './mcp-client.ts';
 import type {
@@ -23,15 +25,39 @@ import type {
   XhsNoteDetail,
   XhsNoteRef,
   XhsNoteSummary,
+  XhsNoteWithComments,
+  XhsNotificationItem,
+  XhsNotificationOptions,
+  XhsNotificationPage,
   XhsProvider,
   XhsPublishDraft,
   XhsPublishResult,
   XhsSearchOptions,
   XhsSendResult,
+  XhsUnreadCounts,
   XhsUserProfile,
   XhsUserRef,
+  XhsLocalInstance,
+  XhsLocalInstanceApi,
+  XhsVisibleLoginApi,
+  XhsVisibleLoginJob,
 } from './types.ts';
 import { buildReport } from './unavailable.ts';
+import { DEFAULT_VISIBLE_LOGIN_TIMEOUT_MS, INSTANCE_NAME_RE, runVisibleLoginHelper, type VisibleLoginRunner } from './visible-login.ts';
+import { DEFAULT_DM_SEND_TIMEOUT_MS, DM_SEND_UNKNOWN_MARK, runDmSendHelper, type DmSendRunner } from './dm-send.ts';
+import {
+  DEFAULT_BASE_PORT,
+  findInstancePort,
+  instanceUrl,
+  isLoopbackHost,
+  probePortFree,
+  recordedPort,
+  runningPid,
+  startLocalInstanceProcess,
+  waitForHealth,
+  type LocalInstanceRunner,
+  type PortProbe,
+} from './local-instance.ts';
 
 /**
  * Live Xiaohongshu provider backed by xpzouying/xiaohongshu-mcp (streamable HTTP).
@@ -56,6 +82,15 @@ import { buildReport } from './unavailable.ts';
  * dispatched, gateway error, unrecognised result text) the result is REQUIRES_REVIEW and NOT
  * retryable, so callers do not publish or reply twice.
  *
+ * One call at a time per instance: every tool call launches a headless browser in xiaohongshu-mcp, and
+ * overlapping calls on one instance pile up browsers on the same cookies (and leak them when a call
+ * panics). Tool calls are therefore queued per instance URL; concurrent login-status probes of one
+ * instance share a single probe.
+ *
+ * Login: Xiaohongshu rejects QR logins scanned from the instance's headless browser. When
+ * `visible_login` is configured, `auth.visibleLogin` logs a local instance in through a visible
+ * browser window instead (see visible-login.ts).
+ *
  * This adapter deliberately does not configure proxies, fingerprint seeds, captcha handling or any
  * other anti-detection behaviour.
  */
@@ -72,10 +107,56 @@ export interface McpProviderConfig {
   timeout_ms?: number;
   /** even when true, DM-like tools are reported REQUIRES_REVIEW and never used */
   enable_dm_tools?: boolean;
+  /** visible-browser login for instances on this host (absent = only headless QR login) */
+  visible_login?: McpVisibleLoginConfig;
+  /** this host runs the instances itself: the console may start an account's own instance (absent = it may not) */
+  local_instances?: McpLocalInstancesConfig;
+  /**
+   * Opt-in DM sending through the account's own logged-in session (tools/xhs-dm-send). Absent (the default) keeps
+   * `send_messages` UNAVAILABLE: there is no authorized DM API, so without this the console never sends a DM itself.
+   */
+  dm_sender?: McpDmSenderConfig;
+}
+
+export interface McpDmSenderConfig {
+  /** the built tools/xhs-dm-send binary */
+  helper_path: string;
+  /** instance state dir: <data_dir>/<instance>/cookies.json — the session the message is sent from */
+  data_dir: string;
+  timeout_ms?: number;
+}
+
+export interface McpLocalInstancesConfig {
+  /** the xiaohongshu-mcp binary on this host */
+  binary_path: string;
+  /** state dir shared with the fleet script: <data_dir>/<instance>/{cookies.json,server.log,pid,port} */
+  data_dir: string;
+  /** address the instances listen on; loopback only */
+  bind: string;
+  /** the research instance's port; accounts take base_port + 1, + 2, … */
+  base_port?: number;
+  /** AUTH_TOKEN the started instance requires — the same token this process authenticates with */
+  token: string;
+}
+
+export interface McpVisibleLoginConfig {
+  /** the built tools/xhs-visible-login binary */
+  helper_path: string;
+  /** instance state dir: <data_dir>/<instance>/cookies.json, instance = 'research' or the platform account id */
+  data_dir: string;
+  timeout_ms?: number;
 }
 
 export interface McpProviderOptions {
   fetchImpl?: typeof fetch;
+  /** runs the login helper (tests inject a fake); default spawns the helper process */
+  runVisibleLogin?: VisibleLoginRunner;
+  /** starts a local xiaohongshu-mcp instance (tests inject a fake); default spawns the process */
+  startLocalInstance?: LocalInstanceRunner;
+  /** sends one reviewed DM through the account's own session (tests inject a fake); default spawns tools/xhs-dm-send */
+  runDmSend?: DmSendRunner;
+  /** checks whether a port is free (tests inject a fake) */
+  probePort?: PortProbe;
   /** internal account id → platform account id (bootstrap passes a DB lookup); default identity */
   resolveAccount?: (internalAccountId: string) => string | null;
   /**
@@ -128,15 +209,17 @@ const CAPABILITY_TOOLS: Partial<Record<XhsCapability, string>> = {
   read_public_profile: 'user_profile',
   publish_content: 'publish_content',
   read_engagement: 'get_my_profile',
+  read_notifications: 'list_notifications',
   reply_comments: 'reply_comment_in_feed',
 };
 const PUBLIC_CAPABILITIES: XhsCapability[] = ['search_public_content', 'read_public_post', 'read_public_comments', 'read_public_profile'];
-const ACCOUNT_CAPABILITIES: XhsCapability[] = ['publish_content', 'read_engagement', 'reply_comments'];
+const ACCOUNT_CAPABILITIES: XhsCapability[] = ['publish_content', 'read_engagement', 'read_notifications', 'reply_comments'];
 const CAPABILITY_NOTES: Partial<Record<XhsCapability, string>> = {
   read_public_comments: 'load_all_comments',
   read_public_profile: 'requires the xsec_token observed with the user',
-  publish_content: 'at least one image required; no note id is returned (reconcile later)',
+  publish_content: 'image note needs ≥1 image, video note needs one local video file (publish_with_video); no note id is returned (reconcile later)',
   read_engagement: "own notes via get_my_profile; no view counts",
+  read_notifications: 'reading a tab clears its unread badge on Xiaohongshu (get_unread_count does not)',
 };
 const SORT_BY: Record<NonNullable<XhsSearchOptions['sort']>, string> = { general: '综合', latest: '最新', popular: '最多点赞' };
 const LOGIN_REQUIRED_RE = /未登录|请先登录|登录已?过期|需要登录|扫码登录|not logged in|login required/i;
@@ -152,12 +235,30 @@ const configV = v.object({
   account_endpoints: v.withDefault(v.record(endpointV), {}),
   timeout_ms: v.optional(v.number({ int: true, min: 1 })),
   enable_dm_tools: v.optional(v.boolean()),
+  visible_login: v.optional(
+    v.object({ helper_path: v.string({ min: 1 }), data_dir: v.string({ min: 1 }), timeout_ms: v.optional(v.number({ int: true, min: 1 })) }),
+  ),
+  local_instances: v.optional(
+    v.object({
+      binary_path: v.string({ min: 1 }),
+      data_dir: v.string({ min: 1 }),
+      bind: v.string({ min: 1 }),
+      base_port: v.optional(v.number({ int: true, min: 1, max: 65_535 })),
+      token: v.string({ min: 1 }),
+    }),
+  ),
+  dm_sender: v.optional(
+    v.object({ helper_path: v.string({ min: 1 }), data_dir: v.string({ min: 1 }), timeout_ms: v.optional(v.number({ int: true, min: 1 })) }),
+  ),
 });
 
 interface Endpoint {
   key: string;
   label: string;
   client: McpHttpClient;
+  /** normalized instance URL: calls on one lane never overlap */
+  lane: string;
+  url: string;
 }
 
 type LoginState = 'logged_in' | 'logged_out' | 'unknown';
@@ -257,6 +358,87 @@ export function parseLoginStatusText(text: string): { logged_in: boolean; userna
   return { logged_in: loggedIn, username };
 }
 
+// ── notification centre ──────────────────────────────────────────────────────
+
+/** Epoch seconds (what Xiaohongshu sends) or milliseconds → ISO-8601, null when it is neither. */
+function notificationTime(value: unknown): string | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value.trim()) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const ms = n > 1e12 ? n : n * 1000;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * What kind of event a notification is. The platform's own `type` (`liked/item`, `faved/item`, `follow/you`, …) decides
+ * it; its Chinese wording is the fallback so a type string we have never seen still lands in the right bucket instead
+ * of silently becoming a like.
+ */
+export function notificationKindOf(rawType: string, title: string, tab: NotificationTab, hasComment: boolean): NotificationKind {
+  const t = rawType.toLowerCase();
+  if (t.includes('follow')) return 'follow';
+  if (t.includes('fav') || t.includes('collect')) return 'collect';
+  if (t.includes('like')) return 'like';
+  if (t.includes('mention') || t.includes('@')) return 'mention';
+  if (t.includes('comment')) return 'comment';
+  if (/关注/.test(title)) return 'follow';
+  if (/收藏/.test(title)) return 'collect';
+  if (/赞/.test(title)) return 'like';
+  if (/回复|评论/.test(title)) return 'comment';
+  if (/提到|@/.test(title)) return 'mention';
+  if (hasComment) return 'comment';
+  return tab === 'mentions' ? 'mention' : tab === 'connections' ? 'follow' : 'other';
+}
+
+/** One page of list_notifications. Entries without a sender or a usable time are dropped: they cannot be acted on. */
+export function notificationsFrom(data: Obj | unknown[], tab: NotificationTab): XhsNotificationPage {
+  const root = Array.isArray(data) ? { items: data } : obj(data);
+  const rawTab = strOrNull(root.tab);
+  const page: XhsNotificationPage = {
+    tab: (NOTIFICATION_TABS as readonly string[]).includes(rawTab ?? '') ? (rawTab as NotificationTab) : tab,
+    filtered: toCount(root.filtered),
+    items: [],
+  };
+  const list = Array.isArray(root.items) ? root.items : [];
+  for (const raw of list) {
+    const item = obj(raw);
+    const id = strOrNull(item.id);
+    const from = obj(item.from);
+    const userId = strOrNull(from.user_id ?? from.userId);
+    const at = notificationTime(item.time);
+    if (!id || !userId || !at) continue;
+    const rawType = strOrNull(item.type) ?? '';
+    const title = strOrNull(item.title) ?? '';
+    const commentId = strOrNull(item.comment_id);
+    page.items.push({
+      provider_notification_id: id,
+      tab: page.tab,
+      kind: notificationKindOf(rawType, title, page.tab, Boolean(commentId)),
+      raw_type: rawType,
+      title,
+      occurred_at: at,
+      from_user_id: userId,
+      from_nickname: strOrNull(from.nickname ?? from.nickName),
+      from_xsec_token: strOrNull(from.xsec_token ?? from.xsecToken),
+      comment_id: commentId,
+      comment_text: strOrNull(item.comment_text),
+      comment_liked: item.liked === true,
+      note_id: strOrNull(item.feed_id),
+      note_xsec_token: strOrNull(item.feed_xsec_token),
+      note_title: strOrNull(item.feed_title),
+    });
+  }
+  return page;
+}
+
+export function unreadCountsFrom(data: Obj | unknown[]): XhsUnreadCounts {
+  const root = Array.isArray(data) ? {} : obj(data);
+  const mentions = toCount(root.mentions);
+  const likes = toCount(root.likes);
+  const connections = toCount(root.connections);
+  return { mentions, likes, connections, total: mentions + likes + connections };
+}
+
 function mapAuthor(user: unknown): XhsAuthor {
   const u = obj(user);
   const id = strOrNull(u.userId ?? u.user_id ?? u.id);
@@ -264,6 +446,8 @@ function mapAuthor(user: unknown): XhsAuthor {
     platform_user_id: id,
     nickname: strOrNull(u.nickname ?? u.nickName ?? u.nick_name),
     profile_url: id ? xhsProfileUrl(id) : null,
+    // comments carry an empty `avatar` string when the platform does not expose one: strOrNull keeps that null
+    avatar_url: strOrNull(u.avatar ?? u.image ?? u.avatarUrl ?? u.avatar_url),
   };
 }
 
@@ -282,6 +466,7 @@ export function mapFeed(feed: unknown): XhsNoteSummary | null {
     title: strOrNull(card.displayTitle ?? card.display_title ?? card.title) ?? '',
     author: mapAuthor(card.user),
     like_count: toCount(interact.likedCount ?? interact.liked_count),
+    comment_count: interact.commentCount ?? interact.comment_count ? toCount(interact.commentCount ?? interact.comment_count) : null,
     url: xhsNoteUrl(id, token),
     published_at: epochToIso(card.time ?? card.lastUpdateTime),
     raw: feed,
@@ -349,6 +534,27 @@ export function mapComment(raw: unknown, parentId: string | null = null): XhsCom
   };
 }
 
+function noteOf(data: Obj, ref: XhsNoteRef): XhsNoteDetail {
+  const note = obj(data.data).note ?? data.note;
+  if (!isObject(note)) throw new Error('get_feed_detail returned no note');
+  return mapNoteDetail(note, ref);
+}
+
+const commentLimit = (opts: XhsCommentOptions): number =>
+  opts.limit !== undefined && Number.isFinite(opts.limit) ? Math.max(1, Math.floor(opts.limit)) : 20;
+
+function commentsOf(data: Obj, opts: XhsCommentOptions): XhsComment[] {
+  const limit = commentLimit(opts);
+  const comments = obj(data.data).comments ?? data.comments;
+  const list = Array.isArray(comments) ? comments : Array.isArray(obj(comments).list) ? (obj(comments).list as unknown[]) : [];
+  const tops = list
+    .map((c) => mapComment(c))
+    .filter((c): c is XhsComment => c !== null)
+    .slice(0, limit);
+  if (opts.include_replies === true) return flattenComments(tops);
+  return tops.map(({ sub_comments: _subs, ...flat }) => flat);
+}
+
 function flattenComments(list: XhsComment[]): XhsComment[] {
   const out: XhsComment[] = [];
   const walk = (c: XhsComment) => {
@@ -385,6 +591,78 @@ export function identityFromMyProfile(data: Obj | unknown[]): { nickname: string
   return { nickname: strOrNull(basic.nickname ?? basic.nickName), red_id: strOrNull(basic.redId ?? basic.red_id), platform_user_id: userId };
 }
 
+/** A count the web payload may leave empty: '' / missing → null (unknown), never 0. */
+function countOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  return toCount(value);
+}
+
+/**
+ * The account's own profile from get_my_profile: userBasicInfo (nickname, redId, avatar, desc, ipLocation),
+ * interactions (follows / fans / 获赞与收藏) and the own notes shown on the profile page.
+ */
+export function profileFromMyProfile(data: Obj | unknown[]): XhsOwnProfile {
+  const root = Array.isArray(data) ? {} : isObject(data.userBasicInfo) ? data : obj(data.data);
+  const basic = obj(root.userBasicInfo);
+  const interaction = (type: string): number | null => {
+    const hit = (Array.isArray(root.interactions) ? root.interactions : []).map(obj).find((i) => i.type === type);
+    return hit ? countOrNull(hit.count) : null;
+  };
+  const notes: XhsOwnNote[] = [];
+  for (const raw of feedsOf(root)) {
+    const feed = obj(raw);
+    const card = obj(feed.noteCard);
+    const id = strOrNull(feed.id ?? card.noteId);
+    if (!id) continue;
+    const cover = obj(card.cover);
+    const info = obj(card.interactInfo);
+    notes.push({
+      platform_note_id: id,
+      title: strOrNull(card.displayTitle ?? card.title) ?? '',
+      // Kept as its own field: reading a note's body needs the token, and rebuilding it from the URL is lossy.
+      xsec_token: strOrNull(feed.xsecToken ?? feed.xsec_token),
+      url: xhsNoteUrl(id, strOrNull(feed.xsecToken ?? feed.xsec_token)),
+      cover_url: strOrNull(cover.urlDefault ?? cover.urlPre ?? cover.url),
+      liked_count: countOrNull(info.likedCount),
+      collected_count: countOrNull(info.collectedCount),
+      comment_count: countOrNull(info.commentCount),
+    });
+  }
+  return {
+    nickname: strOrNull(basic.nickname ?? basic.nickName),
+    red_id: strOrNull(basic.redId ?? basic.red_id),
+    avatar_url: strOrNull(basic.imageb ?? basic.images ?? basic.avatar),
+    bio: strOrNull(basic.desc),
+    ip_location: strOrNull(basic.ipLocation),
+    follows: interaction('follows'),
+    fans: interaction('fans'),
+    liked_and_collected: interaction('interaction'),
+    notes,
+  };
+}
+
+/** True for http(s) URLs on this host (the only instances whose cookies a local login window can write). */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url.trim()).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
+/** TCP port an endpoint URL points at (80/443 when it is implied), or null when the URL is unusable. */
+export function portOfUrl(url: string): number | null {
+  try {
+    const u = new URL(url.trim());
+    if (u.port) return Number(u.port);
+    return u.protocol === 'https:' ? 443 : u.protocol === 'http:' ? 80 : null;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeEndpointUrl(url: string): string {
   try {
     const u = new URL(url.trim());
@@ -413,7 +691,12 @@ class UnconfirmedWriteError extends Error {
   }
 }
 
-type CallMode = 'read' | 'write';
+/**
+ * read: a JSON payload or non-failing text. write: the tool confirms in words (成功). write_json: the tool confirms by
+ * returning the JSON record of what it did (reply_notification / like_notification do this) — an error result has
+ * already thrown by then, so a JSON body without a failure marker is the confirmation.
+ */
+type CallMode = 'read' | 'write' | 'write_json';
 
 const fail = (status: ProviderFailure['status'], reason: string, retryable = false): ProviderFailure => ({
   ok: false,
@@ -427,15 +710,26 @@ const isFailure = (x: unknown): x is ProviderFailure => isObject(x) && x.ok === 
 export class McpXhsProvider implements XhsProvider {
   readonly name = 'xiaohongshu-mcp';
   readonly mode: ProviderMode = 'live';
-  /** Login-session API (QR login from the console, verified identity). */
-  readonly auth: XhsAuthApi = {
-    status: (accountId) => this.authStatus(accountId),
-    loginQrcode: (accountId) => this.authLoginQrcode(accountId),
-  };
+  /** Login-session API (QR / login-window login from the console, verified identity). */
+  readonly auth: XhsAuthApi;
 
   private readonly clock: Clock;
   private readonly cfg: McpProviderConfig;
   private readonly fetchImpl: typeof fetch | undefined;
+  private readonly runVisibleLogin: VisibleLoginRunner;
+  private readonly runLocalInstance: LocalInstanceRunner;
+  private readonly runDmSend: DmSendRunner;
+  private readonly probePort: PortProbe;
+  /** instance name → the start in flight (a second click waits for the first instead of starting a second process) */
+  private readonly localStarts = new Map<string, Promise<ProviderResult<XhsLocalInstance>>>();
+  /** instance lane → tail of its call queue */
+  private readonly lanes = new Map<string, Promise<unknown>>();
+  /** endpoint key → the login-status probe in flight (concurrent callers share it) */
+  private readonly statusInFlight = new Map<string, Promise<ProviderResult<XhsLoginStatus>>>();
+  /** endpoint key → until when a login (QR or window) is pending: logged-out reports are expected, not stale */
+  private readonly pendingLogin = new Map<string, number>();
+  /** instance name → latest login-window job */
+  private readonly visibleJobs = new Map<string, XhsVisibleLoginJob>();
   private readonly resolveAccount: (internalAccountId: string) => string | null;
   private readonly resolveEndpoint: ((accountId: string) => McpEndpointConfig | null) | null;
   /** normalized env account endpoint URL → platform account id */
@@ -443,7 +737,10 @@ export class McpXhsProvider implements XhsProvider {
   private readonly clients = new Map<string, McpHttpClient>();
   private readonly toolCache = new Map<string, { tools: McpToolInfo[]; at: number }>();
   private readonly loginCache = new Map<string, { state: 'logged_in' | 'logged_out'; username: string | null; detail: string; at: number }>();
-  private readonly identityCache = new Map<string, { username: string | null; platform_user_id: string; red_id: string | null; at: number }>();
+  private readonly identityCache = new Map<
+    string,
+    { username: string | null; platform_user_id: string; red_id: string | null; profile: XhsOwnProfile | null; at: number }
+  >();
 
   constructor(clock: Clock, cfg: McpProviderConfig, fetchOrOptions?: typeof fetch | McpProviderOptions) {
     this.clock = clock;
@@ -464,6 +761,23 @@ export class McpXhsProvider implements XhsProvider {
     this.fetchImpl = options.fetchImpl;
     this.resolveAccount = options.resolveAccount ?? ((id) => id);
     this.resolveEndpoint = options.resolveEndpoint ?? null;
+    this.runVisibleLogin = options.runVisibleLogin ?? runVisibleLoginHelper;
+    this.runLocalInstance = options.startLocalInstance ?? startLocalInstanceProcess;
+    this.runDmSend = options.runDmSend ?? runDmSendHelper;
+    this.probePort = options.probePort ?? probePortFree;
+    const visibleLogin: XhsVisibleLoginApi | undefined = this.cfg.visible_login
+      ? { start: (accountId) => this.startVisibleLogin(accountId), status: (accountId) => this.visibleLoginStatus(accountId) }
+      : undefined;
+    const localInstance: XhsLocalInstanceApi | undefined = this.cfg.local_instances
+      ? { start: (accountId, opts) => this.startLocalInstance(accountId, opts?.reserved_ports ?? [], opts?.known_port ?? null) }
+      : undefined;
+    this.auth = {
+      status: (accountId) => this.authStatus(accountId),
+      loginQrcode: (accountId) => this.authLoginQrcode(accountId),
+      logout: (accountId) => this.authLogout(accountId),
+      ...(visibleLogin ? { visibleLogin } : {}),
+      ...(localInstance ? { localInstance } : {}),
+    };
   }
 
   /** Platform account ids that have an env-configured xiaohongshu-mcp instance. */
@@ -479,6 +793,7 @@ export class McpXhsProvider implements XhsProvider {
   clearLoginCache(): void {
     this.loginCache.clear();
     this.identityCache.clear();
+    this.pendingLogin.clear();
   }
 
   /** Where the account's instance is configured (env wins over DB); never includes the token. */
@@ -522,6 +837,15 @@ export class McpXhsProvider implements XhsProvider {
     for (const cap of ['receive_messages', 'send_messages'] as const) {
       states[cap] = dmTools.length > 0 ? { status: 'REQUIRES_REVIEW', reason: this.dmReviewReason(dmTools) } : { status: 'UNAVAILABLE', reason: MCP_DM_REASONS[cap] };
     }
+    // Opt-in sending through the account's own session (tools/xhs-dm-send). Reading the inbox stays impossible, and a
+    // DM-like tool on the instance still wins: an unknown tool is reviewed, never trusted because we also have a sender.
+    if (this.cfg.dm_sender && accountId && dmTools.length === 0) {
+      const ready = this.dmSenderReady(accountId, this.cfg.dm_sender);
+      states.send_messages =
+        typeof ready === 'string'
+          ? { status: 'AVAILABLE', reason: `由该账号自己的登录会话发送（tools/xhs-dm-send，实例 ${ready}）：没有官方私信接口，发送后以会话中读回的消息为准` }
+          : { status: ready.status, reason: ready.reason };
+    }
     return buildReport(this.name, this.mode, accountId, this.clock, states);
   }
 
@@ -563,56 +887,55 @@ export class McpXhsProvider implements XhsProvider {
     const ep = this.publicEndpoint(accountId);
     if (!isEndpoint(ep)) return ep;
     if (!ref.xsec_token) return fail('UNAVAILABLE', 'xsec_token is required by xiaohongshu-mcp get_feed_detail (use the token returned with search results)');
-    return this.readWithLogin(ep, async () => {
-      const data = obj(
-        parseToolJson(
-          await this.call(ep, 'get_feed_detail', { feed_id: ref.platform_post_id, xsec_token: ref.xsec_token, load_all_comments: false }, 'read'),
-        ),
-      );
-      const inner = obj(data.data);
-      const note = inner.note ?? data.note;
-      if (!isObject(note)) throw new Error('get_feed_detail returned no note');
-      return mapNoteDetail(note, ref);
-    });
+    return this.readWithLogin(ep, async () =>
+      noteOf(
+        obj(parseToolJson(await this.call(ep, 'get_feed_detail', { feed_id: ref.platform_post_id, xsec_token: ref.xsec_token, load_all_comments: false }, 'read'))),
+        ref,
+      ),
+    );
   }
 
   async getComments(ref: XhsNoteRef, opts: XhsCommentOptions = {}, accountId: string | null = null): Promise<ProviderResult<XhsComment[]>> {
     const ep = this.publicEndpoint(accountId);
     if (!isEndpoint(ep)) return ep;
     if (!ref.xsec_token) return fail('UNAVAILABLE', 'xsec_token is required by xiaohongshu-mcp get_feed_detail (use the token returned with search results)');
-    const limit = opts.limit !== undefined && Number.isFinite(opts.limit) ? Math.max(1, Math.floor(opts.limit)) : 20;
-    const includeReplies = opts.include_replies === true;
     return this.readWithLogin(
       ep,
-      async () => {
-        const data = obj(
-          parseToolJson(
-            await this.call(
-              ep,
-              'get_feed_detail',
-              {
-                feed_id: ref.platform_post_id,
-                xsec_token: ref.xsec_token,
-                load_all_comments: true,
-                limit,
-                click_more_replies: includeReplies,
-                reply_limit: 10,
-              },
-              'read',
-            ),
-          ),
-        );
-        const inner = obj(data.data);
-        const comments = inner.comments ?? data.comments;
-        const list = Array.isArray(comments) ? comments : Array.isArray(obj(comments).list) ? (obj(comments).list as unknown[]) : [];
-        const tops = list
-          .map((c) => mapComment(c))
-          .filter((c): c is XhsComment => c !== null)
-          .slice(0, limit);
-        if (includeReplies) return flattenComments(tops);
-        return tops.map(({ sub_comments: _subs, ...flat }) => flat);
-      },
+      async () => commentsOf(await this.feedDetailWithComments(ep, ref, opts), opts),
       (comments) => comments.length === 0,
+    );
+  }
+
+  /** Detail + comments from one get_feed_detail call (one page load instead of two). */
+  async getNoteWithComments(ref: XhsNoteRef, opts: XhsCommentOptions = {}, accountId: string | null = null): Promise<ProviderResult<XhsNoteWithComments>> {
+    const ep = this.publicEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    if (!ref.xsec_token) return fail('UNAVAILABLE', 'xsec_token is required by xiaohongshu-mcp get_feed_detail (use the token returned with search results)');
+    // The note itself proves the page loaded (a logged-out session gets "笔记不可访问", i.e. no note), so a note
+    // without comments is a real empty comment section, not a reason to re-check the login.
+    return this.readWithLogin(ep, async () => {
+      const data = await this.feedDetailWithComments(ep, ref, opts);
+      return { note: noteOf(data, ref), comments: commentsOf(data, opts) };
+    });
+  }
+
+  private async feedDetailWithComments(ep: Endpoint, ref: XhsNoteRef, opts: XhsCommentOptions): Promise<Obj> {
+    return obj(
+      parseToolJson(
+        await this.call(
+          ep,
+          'get_feed_detail',
+          {
+            feed_id: ref.platform_post_id,
+            xsec_token: ref.xsec_token,
+            load_all_comments: true,
+            limit: commentLimit(opts),
+            click_more_replies: opts.include_replies === true,
+            reply_limit: 10,
+          },
+          'read',
+        ),
+      ),
     );
   }
 
@@ -633,6 +956,7 @@ export class McpXhsProvider implements XhsProvider {
         platform_user_id: ref.platform_user_id,
         nickname,
         profile_url: xhsProfileUrl(ref.platform_user_id),
+        avatar_url: strOrNull(basic.imageb ?? basic.images ?? basic.avatar ?? basic.image),
         bio: strOrNull(basic.desc),
         ip_location: strOrNull(basic.ipLocation ?? basic.ip_location),
         follower_count: fans ? toCount(fans.count) : null,
@@ -645,9 +969,29 @@ export class McpXhsProvider implements XhsProvider {
 
   // ── account actions ────────────────────────────────────────────────────────
 
+  /**
+   * Publish an image note (`publish_content`) or, when the draft carries a video, a video note
+   * (`publish_with_video`: one local file on the instance's host, no images). Neither returns a note id.
+   */
   async publishNote(accountId: string, draft: XhsPublishDraft): Promise<ProviderResult<XhsPublishResult>> {
     const ep = this.requireAccountEndpoint(accountId);
     if (!isEndpoint(ep)) return ep;
+    const video = typeof draft.video === 'string' ? draft.video.trim() : '';
+    if (video) {
+      if (!video.startsWith('/')) return fail('UNAVAILABLE', 'xiaohongshu-mcp publish_with_video takes one absolute local path on the instance host, not a URL');
+      const tools = await this.tools(ep).catch(() => [] as McpToolInfo[]);
+      if (!tools.some((t) => t.name === 'publish_with_video')) {
+        return fail('UNAVAILABLE', `tool publish_with_video not exposed by this xiaohongshu-mcp server (${ep.label})`);
+      }
+      return this.run(
+        ep,
+        async () => {
+          await this.call(ep, 'publish_with_video', { title: draft.title, content: draft.body, video, tags: draft.tags }, 'write');
+          return { platform_note_id: null, url: null };
+        },
+        'publish_with_video',
+      );
+    }
     const images = (draft.images ?? []).filter((i) => typeof i === 'string' && i.trim());
     if (images.length === 0) return fail('REQUIRES_REVIEW', 'xiaohongshu-mcp requires at least one image');
     return this.run(
@@ -706,12 +1050,140 @@ export class McpXhsProvider implements XhsProvider {
     );
   }
 
+  // ── notification centre ────────────────────────────────────────────────────
+
+  /** Unread badges per tab. This is the one call that does NOT clear them. */
+  async getUnreadCounts(accountId: string): Promise<ProviderResult<XhsUnreadCounts>> {
+    const ep = this.requireAccountEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    return this.readWithLogin(ep, async () => unreadCountsFrom(parseToolJson(await this.call(ep, 'get_unread_count', {}, 'read'))));
+  }
+
+  /**
+   * One tab of the notification centre. Reading it clears that tab's unread badge on Xiaohongshu — the same thing
+   * opening the page in the app does. `filtered` counts entries the platform hid from us (deleted comment, note under
+   * review), so callers can say the list is shorter than reality instead of pretending it is complete.
+   */
+  async listNotifications(accountId: string, opts: XhsNotificationOptions = {}): Promise<ProviderResult<XhsNotificationPage>> {
+    const ep = this.requireAccountEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    const tab: NotificationTab = opts.tab ?? 'mentions';
+    const args: Record<string, unknown> = { tab };
+    if (opts.limit && opts.limit > 0) args.limit = Math.floor(opts.limit);
+    return this.readWithLogin(
+      ep,
+      async () => notificationsFrom(parseToolJson(await this.call(ep, 'list_notifications', args, 'read')), tab),
+      (page) => page.items.length === 0 && page.filtered === 0,
+    );
+  }
+
+  /** Public reply to the comment a notification points at (no note id needed). */
+  async replyToNotification(accountId: string, commentId: string, text: string): Promise<ProviderResult<XhsSendResult>> {
+    const ep = this.requireAccountEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    const comment = (commentId ?? '').trim();
+    if (!comment) return fail('UNAVAILABLE', 'no comment id: this notification cannot be replied to');
+    const body = (text ?? '').trim();
+    if (!body) return fail('UNAVAILABLE', 'reply text is empty');
+    return this.run(
+      ep,
+      async () => {
+        await this.call(ep, 'reply_notification', { comment_id: comment, content: body }, 'write_json');
+        // The tool returns the reply it made, not an id of its own; this local reference records the confirmed reply.
+        return { provider_message_id: `xhs-mcp-notify-reply:${comment}:${this.clock.now().getTime()}` };
+      },
+      'reply_notification',
+    );
+  }
+
+  /** Like (or unlike) the comment a notification points at. The tool skips when it is already in that state. */
+  async likeNotificationComment(accountId: string, commentId: string, unlike = false): Promise<ProviderResult<{ liked: boolean }>> {
+    const ep = this.requireAccountEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    const comment = (commentId ?? '').trim();
+    if (!comment) return fail('UNAVAILABLE', 'no comment id: this notification cannot be liked');
+    return this.run(
+      ep,
+      async () => {
+        await this.call(ep, 'like_notification', { comment_id: comment, unlike }, 'write_json');
+        return { liked: !unlike };
+      },
+      'like_notification',
+    );
+  }
+
   async listInboundMessages(accountId: string, _since: string | null): Promise<ProviderResult<XhsInboundMessage[]>> {
     return this.dmFailure(accountId, 'receive_messages');
   }
 
-  async sendMessage(accountId: string, _toPlatformUserId: string, _text: string): Promise<ProviderResult<XhsSendResult>> {
-    return this.dmFailure(accountId, 'send_messages');
+  /**
+   * Send one reviewed DM from this account's own logged-in session (tools/xhs-dm-send), when the deployment opted in.
+   * Without `dm_sender` this stays the documented UNAVAILABLE: there is no authorized DM API.
+   *
+   * The result is only `ok` when the helper read the message back inside the conversation — that id is what makes an
+   * outreach SENT. An outcome that could not be established comes back as REQUIRES_REVIEW and never retryable: the
+   * message may already be with a real person.
+   */
+  async sendMessage(accountId: string, toPlatformUserId: string, text: string): Promise<ProviderResult<XhsSendResult>> {
+    const cfg = this.cfg.dm_sender;
+    if (!cfg) return this.dmFailure(accountId, 'send_messages');
+    const body = (text ?? '').trim();
+    if (!body) return fail('UNAVAILABLE', 'refusing to send an empty message');
+    const target = (toPlatformUserId ?? '').trim();
+    if (!target) return fail('UNAVAILABLE', 'no Xiaohongshu user id for this lead: cannot open a conversation');
+    const review = await this.dmToolReview(accountId);
+    if (review) return review;
+    const ready = this.dmSenderReady(accountId, cfg);
+    if (typeof ready !== 'string') return ready;
+    const outcome = await this.runOnLane(ready, () =>
+      this.runDmSend({
+        helperPath: cfg.helper_path,
+        cookiesPath: join(cfg.data_dir, ready, 'cookies.json'),
+        profileUrl: xhsProfileUrl(target),
+        text: body,
+        timeoutMs: cfg.timeout_ms ?? DEFAULT_DM_SEND_TIMEOUT_MS,
+      }),
+    );
+    if (outcome.state === 'sent' && outcome.message_id) {
+      // The instance and the helper share one session: a fresh login state is safer than the cached one.
+      this.clearLoginCache();
+      return { ok: true, data: { provider_message_id: `xhs-dm:${outcome.message_id}`, peer_avatar_url: outcome.peer_avatar_url } };
+    }
+    if (outcome.state === 'failed') return fail('UNAVAILABLE', `私信未发出：${outcome.detail}`, true);
+    return fail('REQUIRES_REVIEW', `私信${DM_SEND_UNKNOWN_MARK}，请在小红书中确认后再登记，不要重试：${outcome.detail}`);
+  }
+
+  /** The instance name whose session may send for this account, or why it may not. */
+  private dmSenderReady(accountId: string, cfg: McpDmSenderConfig): string | ProviderFailure {
+    const instance = this.instanceName(accountId);
+    if (typeof instance !== 'string') return instance;
+    const ep = this.requireAccountEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    if (!isLoopbackUrl(ep.url)) {
+      return fail('UNAVAILABLE', `账号「${instance}」的实例在其他机器上（${ep.url}），本机没有它的登录会话，无法代为发送私信`);
+    }
+    try {
+      accessSync(cfg.helper_path, fsConstants.X_OK);
+    } catch {
+      return fail('UNAVAILABLE', `私信发送助手 ${cfg.helper_path} 不存在或不可执行（XHS_DM_SENDER）`);
+    }
+    if (!existsSync(join(cfg.data_dir, instance, 'cookies.json'))) {
+      return fail('REQUIRES_AUTH', `账号「${instance}」在本机没有登录会话文件，请先扫码登录后再发送私信`);
+    }
+    return instance;
+  }
+
+  /** Run something on an instance's lane: a browser started by the helper must not overlap the instance's own calls. */
+  private runOnLane<T>(instance: string, fn: () => Promise<T>): Promise<T> {
+    const lane = `dm:${instance}`;
+    const prev = this.lanes.get(lane) ?? Promise.resolve();
+    const run = prev.then(fn);
+    const tail = run.catch(() => undefined);
+    this.lanes.set(lane, tail);
+    void tail.then(() => {
+      if (this.lanes.get(lane) === tail) this.lanes.delete(lane);
+    });
+    return run;
   }
 
   // ── login session API ──────────────────────────────────────────────────────
@@ -722,9 +1194,26 @@ export class McpXhsProvider implements XhsProvider {
     return this.fallbackPublicEndpoint() ?? fail('UNAVAILABLE', NO_PUBLIC_ENDPOINT_REASON);
   }
 
-  private async authStatus(accountId: string | null): Promise<ProviderResult<XhsLoginStatus>> {
+  /** Concurrent status requests for one instance (console polling, fleet sync) share a single live probe. */
+  private authStatus(accountId: string | null): Promise<ProviderResult<XhsLoginStatus>> {
     const ep = this.authEndpoint(accountId);
-    if (!isEndpoint(ep)) return ep;
+    if (!isEndpoint(ep)) return Promise.resolve(ep);
+    const inFlight = this.statusInFlight.get(ep.key);
+    if (inFlight) return inFlight;
+    const probe = this.probeAuthStatus(ep).finally(() => this.statusInFlight.delete(ep.key));
+    this.statusInFlight.set(ep.key, probe);
+    return probe;
+  }
+
+  private loginPending(ep: Endpoint): boolean {
+    const until = this.pendingLogin.get(ep.key);
+    if (until === undefined) return false;
+    if (this.clock.now().getTime() < until) return true;
+    this.pendingLogin.delete(ep.key);
+    return false;
+  }
+
+  private async probeAuthStatus(ep: Endpoint): Promise<ProviderResult<XhsLoginStatus>> {
     const login = await this.checkLogin(ep, true);
     if (isFailure(login)) return login;
     if (login.state === 'unknown') {
@@ -734,8 +1223,12 @@ export class McpXhsProvider implements XhsProvider {
     const loginReportedLoggedOut = login.state === 'logged_out';
     const loggedOut = (detail: string): ProviderResult<XhsLoginStatus> => ({
       ok: true,
-      data: { logged_in: false, username: null, platform_user_id: null, red_id: null, detail: `${login.detail}; ${detail}`, endpoint_label: ep.label },
+      data: { logged_in: false, username: null, platform_user_id: null, red_id: null, profile: null, detail: `${login.detail}; ${detail}`, endpoint_label: ep.label },
     });
+    if (!loginReportedLoggedOut) this.pendingLogin.delete(ep.key);
+    // While a login is pending, "logged out" is the expected answer, and on a logged-out instance get_my_profile
+    // hangs until its 60 s deadline: polling it would pile browsers onto the session being logged in.
+    if (loginReportedLoggedOut && this.loginPending(ep)) return loggedOut('login pending; identity check skipped until the session logs in');
     const nowMs = this.clock.now().getTime();
     const cached = this.identityCache.get(ep.key);
     if (!loginReportedLoggedOut && cached && cached.username === login.username && nowMs - cached.at < IDENTITY_CACHE_TTL_MS) {
@@ -746,6 +1239,7 @@ export class McpXhsProvider implements XhsProvider {
           username: login.username,
           platform_user_id: cached.platform_user_id,
           red_id: cached.red_id,
+          profile: cached.profile,
           detail: `logged in as ${login.username ?? '(unknown nickname)'}; user id verified via get_my_profile`,
           endpoint_label: ep.label,
         },
@@ -753,6 +1247,7 @@ export class McpXhsProvider implements XhsProvider {
     }
     let platformUserId: string | null = null;
     let redId: string | null = null;
+    let profile: XhsOwnProfile | null = null;
     let identityDetail: string;
     try {
       const tools = await this.tools(ep);
@@ -760,14 +1255,16 @@ export class McpXhsProvider implements XhsProvider {
         identityDetail = 'user id not verified: get_my_profile tool not exposed';
         if (loginReportedLoggedOut) return loggedOut(identityDetail);
       } else {
-        const identity = identityFromMyProfile(parseToolJson(await this.call(ep, 'get_my_profile', { tab: 'note' }, 'read')));
+        const payload = parseToolJson(await this.call(ep, 'get_my_profile', { tab: 'note' }, 'read'));
+        const identity = identityFromMyProfile(payload);
+        profile = profileFromMyProfile(payload);
         platformUserId = identity.platform_user_id;
         redId = identity.red_id;
         identityDetail = platformUserId
           ? 'user id verified via get_my_profile'
           : 'user id not verified: the account has no own notes on get_my_profile to read it from';
         if (loginReportedLoggedOut && !platformUserId) return loggedOut(identityDetail);
-        if (platformUserId) this.identityCache.set(ep.key, { username: login.username, platform_user_id: platformUserId, red_id: redId, at: nowMs });
+        if (platformUserId) this.identityCache.set(ep.key, { username: login.username, platform_user_id: platformUserId, red_id: redId, profile, at: nowMs });
       }
     } catch (err) {
       identityDetail = `user id not verified: get_my_profile failed (${(err as Error)?.message ?? String(err)})`;
@@ -780,10 +1277,34 @@ export class McpXhsProvider implements XhsProvider {
         username: login.username,
         platform_user_id: platformUserId,
         red_id: redId,
+        profile,
         detail: `logged in as ${login.username ?? '(unknown nickname)'}; ${identityDetail}`,
         endpoint_label: ep.label,
       },
     };
+  }
+
+  /** Delete the instance's cookies: the account is logged out until someone logs it in again. */
+  private async authLogout(accountId: string | null): Promise<ProviderResult<{ detail: string }>> {
+    const ep = this.authEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    const tools = await this.tools(ep).catch(() => [] as McpToolInfo[]);
+    if (!tools.some((t) => t.name === 'delete_cookies')) {
+      return fail('UNAVAILABLE', `tool delete_cookies not exposed by this xiaohongshu-mcp server (${ep.label})`);
+    }
+    const result = await this.run(
+      ep,
+      async () => {
+        const res = await this.callTool(ep, 'delete_cookies', {});
+        return { detail: res.text.trim().slice(0, 200) || '已删除登录状态' };
+      },
+      'delete_cookies',
+    );
+    // Whatever happened, what we believed about this session is no longer safe to reuse.
+    this.loginCache.delete(ep.key);
+    this.toolCache.delete(ep.key);
+    this.pendingLogin.delete(ep.key);
+    return result;
   }
 
   private async authLoginQrcode(accountId: string | null): Promise<ProviderResult<XhsLoginQrcode>> {
@@ -794,17 +1315,19 @@ export class McpXhsProvider implements XhsProvider {
       if (!tools.some((t) => t.name === 'get_login_qrcode')) {
         return fail('UNAVAILABLE', `tool get_login_qrcode not exposed by this xiaohongshu-mcp server (${ep.label})`);
       }
-      const res = await ep.client.callTool('get_login_qrcode', {});
+      const res = await this.callTool(ep, 'get_login_qrcode', {});
       // A new QR login replaces the instance's session state: re-probe before the next read.
       this.loginCache.delete(ep.key);
       this.identityCache.delete(ep.key);
       const image = res.content.find((c): c is McpImageContent => c.type === 'image' && typeof (c as McpImageContent).data === 'string');
       if (!image) {
         if (ALREADY_LOGGED_IN_RE.test(res.text) && !res.text.includes('未登录')) {
+          this.pendingLogin.delete(ep.key);
           return { ok: true, data: { already_logged_in: true, image_data_url: null, expires_at: null, detail: res.text.trim() || 'already logged in' } };
         }
         return fail('UNAVAILABLE', `get_login_qrcode returned no QR image (${ep.label}): ${res.text.trim().slice(0, 200) || '(empty result)'}`, true);
       }
+      this.pendingLogin.set(ep.key, this.clock.now().getTime() + LOGIN_QRCODE_TTL_MS);
       const base64 = image.data.replace(/^data:[^;,]+;base64,/, '');
       return {
         ok: true,
@@ -821,7 +1344,173 @@ export class McpXhsProvider implements XhsProvider {
     }
   }
 
+  /**
+   * Instance name of an auth target: 'research', or the account's platform account id (fleet script layout). Without a
+   * research instance, public reads (and so the research login) fall back to the first env account's instance.
+   */
+  private instanceName(accountId: string | null): string | ProviderFailure {
+    if (accountId === null) {
+      const fallback = this.cfg.research_endpoint ? 'research' : Object.keys(this.cfg.account_endpoints)[0];
+      if (!fallback) return fail('UNAVAILABLE', NO_PUBLIC_ENDPOINT_REASON);
+      return INSTANCE_NAME_RE.test(fallback) ? fallback : fail('UNAVAILABLE', `account id ${JSON.stringify(fallback)} cannot name an instance directory`);
+    }
+    let name: string | null;
+    try {
+      name = this.resolveAccount(accountId) ?? accountId;
+    } catch (err) {
+      return fail('UNAVAILABLE', `could not resolve account ${accountId} to a platform account id: ${(err as Error)?.message ?? String(err)}`, true);
+    }
+    return INSTANCE_NAME_RE.test(name) ? name : fail('UNAVAILABLE', `account id ${JSON.stringify(name)} cannot name an instance directory (letters, digits, . _ - only)`);
+  }
+
+  private async startVisibleLogin(accountId: string | null): Promise<ProviderResult<XhsVisibleLoginJob>> {
+    const cfg = this.cfg.visible_login;
+    if (!cfg) return fail('UNAVAILABLE', 'visible login is not configured (XHS_LOGIN_HELPER / XHS_MCP_DATA_DIR)');
+    const ep = this.authEndpoint(accountId);
+    if (!isEndpoint(ep)) return ep;
+    const instance = this.instanceName(accountId);
+    if (typeof instance !== 'string') return instance;
+    if (!isLoopbackUrl(ep.url)) {
+      return fail(
+        'UNAVAILABLE',
+        `the instance of ${ep.label} (${ep.url}) is not on this host; open the login window on the instance's host: scripts/xhs-mcp-fleet.sh login ${instance}`,
+      );
+    }
+    const running = this.visibleJobs.get(instance);
+    if (running?.state === 'running') return { ok: true, data: { ...running } };
+    try {
+      accessSync(cfg.helper_path, fsConstants.X_OK);
+    } catch {
+      return fail('UNAVAILABLE', `login helper ${cfg.helper_path} is missing or not executable; build it with scripts/xhs-mcp-fleet.sh build-login-helper`);
+    }
+    const instanceDir = join(cfg.data_dir, instance);
+    if (!existsSync(instanceDir)) {
+      return fail('UNAVAILABLE', `no state directory ${instanceDir} for instance ${instance}; start the instance with scripts/xhs-mcp-fleet.sh first`);
+    }
+    const timeoutMs = cfg.timeout_ms ?? DEFAULT_VISIBLE_LOGIN_TIMEOUT_MS;
+    const nowMs = this.clock.now().getTime();
+    const job: XhsVisibleLoginJob = {
+      state: 'running',
+      instance,
+      started_at: new Date(nowMs).toISOString(),
+      finished_at: null,
+      expires_at: new Date(nowMs + timeoutMs).toISOString(),
+      detail: `login window opened on this host for ${ep.label}; scan the QR code in that window`,
+    };
+    this.visibleJobs.set(instance, job);
+    this.pendingLogin.set(ep.key, nowMs + timeoutMs);
+    void this.runVisibleLogin({ helperPath: cfg.helper_path, cookiesPath: join(instanceDir, 'cookies.json'), timeoutMs })
+      .catch((err: unknown) => ({ ok: false, detail: `login helper failed: ${(err as Error)?.message ?? String(err)}` }))
+      .then((outcome) => {
+        job.state = outcome.ok ? 'succeeded' : 'failed';
+        job.finished_at = this.clock.iso();
+        job.detail = outcome.detail;
+        // The instance reads the new cookies on its next browser launch: re-probe instead of trusting caches.
+        this.loginCache.delete(ep.key);
+        this.identityCache.delete(ep.key);
+        this.pendingLogin.delete(ep.key);
+      });
+    return { ok: true, data: { ...job } };
+  }
+
+  /**
+   * Start (or reuse) this account's own instance on this host. One start per instance at a time; a healthy instance
+   * that is already running is reused, so a double click can never leave two processes on one cookies file.
+   */
+  private startLocalInstance(accountId: string, reserved: number[], knownPort: number | null): Promise<ProviderResult<XhsLocalInstance>> {
+    const cfg = this.cfg.local_instances;
+    if (!cfg) {
+      return Promise.resolve(fail('UNAVAILABLE', 'this host is not configured to run xiaohongshu-mcp instances (XHS_MCP_BIN + XHS_MCP_DATA_DIR + XHS_MCP_TOKEN)'));
+    }
+    const instance = this.instanceName(accountId);
+    if (typeof instance !== 'string') return Promise.resolve(instance);
+    const pinned = this.cfg.account_endpoints[instance];
+    if (pinned) {
+      return Promise.resolve(
+        fail('UNAVAILABLE', `account ${instance} is pinned to ${pinned.url} by XHS_MCP_ACCOUNTS; start or stop that instance where it is configured`),
+      );
+    }
+    if (!isLoopbackHost(cfg.bind)) {
+      return Promise.resolve(fail('UNAVAILABLE', `instances would listen on ${cfg.bind}, which is not this host; the console only starts loopback instances`));
+    }
+    const inFlight = this.localStarts.get(instance);
+    if (inFlight) return inFlight;
+    const run = this.runLocalInstanceStart(cfg, instance, reserved, knownPort).finally(() => this.localStarts.delete(instance));
+    this.localStarts.set(instance, run);
+    return run;
+  }
+
+  private async runLocalInstanceStart(
+    cfg: McpLocalInstancesConfig,
+    instance: string,
+    reserved: number[],
+    knownPort: number | null,
+  ): Promise<ProviderResult<XhsLocalInstance>> {
+    try {
+      accessSync(cfg.binary_path, fsConstants.X_OK);
+    } catch {
+      return fail('UNAVAILABLE', `xiaohongshu-mcp binary ${cfg.binary_path} is missing or not executable (XHS_MCP_BIN)`);
+    }
+    const fetchImpl = this.fetchImpl ?? fetch;
+    const instanceDir = join(cfg.data_dir, instance);
+    const known = recordedPort(instanceDir) ?? knownPort;
+    const pid = runningPid(instanceDir);
+    // One process per cookies file: a live instance is reused, and a live process that does not answer is reported
+    // instead of being duplicated — two processes on one session would log the account out of one of them.
+    if (pid !== null) {
+      if (known !== null && (await waitForHealth(cfg.bind, known, 0, fetchImpl))) {
+        return {
+          ok: true,
+          data: { instance, url: instanceUrl(cfg.bind, known), port: known, pid, started: false, detail: `实例已在运行（pid ${pid}，端口 ${known}）` },
+        };
+      }
+      return fail(
+        'UNAVAILABLE',
+        `an instance process for ${instance} is still running (pid ${pid}${known === null ? ', port unknown' : `, port ${known} not answering /health`}); stop it first (kill ${pid}) or save its URL by hand — a second process on the same cookies file would break the session`,
+      );
+    }
+    const taken = new Set<number>(reserved.filter((p) => Number.isInteger(p) && p > 0));
+    for (const ep of Object.values(this.cfg.account_endpoints)) {
+      const port = portOfUrl(ep.url);
+      if (port !== null) taken.add(port);
+    }
+    const researchPort = this.cfg.research_endpoint ? portOfUrl(this.cfg.research_endpoint.url) : null;
+    if (researchPort !== null) taken.add(researchPort);
+    const basePort = cfg.base_port ?? DEFAULT_BASE_PORT;
+    taken.delete(known ?? -1);
+    const port = await findInstancePort(cfg.bind, basePort, taken, known, this.probePort);
+    if (port === null) return fail('UNAVAILABLE', `no free port for a new instance in ${basePort + 1}–${basePort + 64} on ${cfg.bind}`);
+    const outcome = await this.runLocalInstance({ binaryPath: cfg.binary_path, instanceDir, bind: cfg.bind, port, token: cfg.token });
+    if (!outcome.ok) return fail('UNAVAILABLE', outcome.detail);
+    return {
+      ok: true,
+      data: { instance, url: instanceUrl(cfg.bind, port), port, pid: outcome.pid, started: true, detail: outcome.detail },
+    };
+  }
+
+  private visibleLoginStatus(accountId: string | null): XhsVisibleLoginJob | null {
+    const instance = this.instanceName(accountId);
+    if (typeof instance !== 'string') return null;
+    const job = this.visibleJobs.get(instance);
+    return job ? { ...job } : null;
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
+
+  /**
+   * Every tools/call goes through here: calls on one instance run one at a time (each launches a headless browser;
+   * overlapping calls pile browsers onto one session). A failed call does not block the queue.
+   */
+  private callTool(ep: Endpoint, tool: string, args: Record<string, unknown>): ReturnType<McpHttpClient['callTool']> {
+    const prev = this.lanes.get(ep.lane) ?? Promise.resolve();
+    const run = prev.then(() => ep.client.callTool(tool, args));
+    const tail = run.catch(() => undefined);
+    this.lanes.set(ep.lane, tail);
+    void tail.then(() => {
+      if (this.lanes.get(ep.lane) === tail) this.lanes.delete(ep.lane);
+    });
+    return run;
+  }
 
   private dmReviewReason(tools: string[]): string {
     const base = `DM-like tool detected (${tools.join(', ')}) but unverified; not enabled`;
@@ -832,18 +1521,26 @@ export class McpXhsProvider implements XhsProvider {
 
   /** DM methods never call any tool. The failure status mirrors what capabilities() reports for the endpoint. */
   private async dmFailure(accountId: string, cap: 'receive_messages' | 'send_messages'): Promise<ProviderFailure> {
-    const { ep } = this.lookupAccount(accountId);
-    if (ep) {
-      let tools: McpToolInfo[] = [];
-      try {
-        tools = await this.tools(ep);
-      } catch {
-        // unreachable endpoint: fall through to the documented UNAVAILABLE reason
-      }
-      const dmTools = dmToolNames(tools);
-      if (dmTools.length > 0) return fail('REQUIRES_REVIEW', this.dmReviewReason(dmTools));
-    }
+    const review = await this.dmToolReview(accountId);
+    if (review) return review;
     return fail('UNAVAILABLE', MCP_DM_REASONS[cap]);
+  }
+
+  /**
+   * REQUIRES_REVIEW when the instance exposes a DM-like tool we did not put there. Such a tool is never called, and
+   * an instance behaving unexpectedly is not one this process sends customer messages from either.
+   */
+  private async dmToolReview(accountId: string): Promise<ProviderFailure | null> {
+    const { ep } = this.lookupAccount(accountId);
+    if (!ep) return null;
+    let tools: McpToolInfo[] = [];
+    try {
+      tools = await this.tools(ep);
+    } catch {
+      // unreachable endpoint: the caller falls through to its own reason
+    }
+    const dmTools = dmToolNames(tools);
+    return dmTools.length > 0 ? fail('REQUIRES_REVIEW', this.dmReviewReason(dmTools)) : null;
   }
 
   private endpointFor(label: string, cfg: McpEndpointConfig): Endpoint {
@@ -853,7 +1550,7 @@ export class McpXhsProvider implements XhsProvider {
       client = new McpHttpClient({ url: cfg.url, token: cfg.token, fetchImpl: this.fetchImpl, timeoutMs: this.cfg.timeout_ms });
       this.clients.set(key, client);
     }
-    return { key, label, client };
+    return { key, label, client, lane: normalizeEndpointUrl(cfg.url), url: cfg.url };
   }
 
   /** Env-configured endpoint of an account (by resolved platform id, then by the id as given). */
@@ -931,6 +1628,16 @@ export class McpXhsProvider implements XhsProvider {
     }
   }
 
+  /**
+   * A read that returned real content is evidence the session works (logged-out reads time out, report
+   * "笔记不可访问" or come back empty), so it extends a logged_in state instead of re-probing before every read.
+   * It never turns an unknown or logged_out state into logged_in, and failed / empty reads still re-probe.
+   */
+  private renewLogin(ep: Endpoint): void {
+    const cached = this.loginCache.get(ep.key);
+    if (cached?.state === 'logged_in') cached.at = this.clock.now().getTime();
+  }
+
   private rememberLogin(ep: Endpoint, state: 'logged_in' | 'logged_out', username: string | null, detail: string): void {
     this.loginCache.set(ep.key, { state, username, detail, at: this.clock.now().getTime() });
     if (state === 'logged_out') this.identityCache.delete(ep.key);
@@ -956,7 +1663,7 @@ export class McpXhsProvider implements XhsProvider {
       return { state: 'unknown', username: null, detail: 'check_login_status tool not exposed', live: true };
     }
     try {
-      const res = await ep.client.callTool('check_login_status', {});
+      const res = await this.callTool(ep, 'check_login_status', {});
       const parsed = parseLoginStatusText(res.text);
       const detail = res.text.trim().slice(0, 160);
       this.rememberLogin(ep, parsed.logged_in ? 'logged_in' : 'logged_out', parsed.username, detail);
@@ -989,9 +1696,13 @@ export class McpXhsProvider implements XhsProvider {
     if (before.state === 'logged_out') return this.authFailure(ep, before.detail);
     const result = await this.run(ep, fn);
     if (result.ok) {
-      if (isEmpty?.(result.data) && !before.live) {
-        const again = await this.checkLogin(ep, true);
-        if (!isFailure(again) && again.state === 'logged_out') return this.authFailure(ep, again.detail);
+      if (isEmpty?.(result.data)) {
+        if (!before.live) {
+          const again = await this.checkLogin(ep, true);
+          if (!isFailure(again) && again.state === 'logged_out') return this.authFailure(ep, again.detail);
+        }
+      } else {
+        this.renewLogin(ep);
       }
       return result;
     }
@@ -1011,14 +1722,15 @@ export class McpXhsProvider implements XhsProvider {
    */
   private async call(ep: Endpoint, tool: string, args: Record<string, unknown>, mode: CallMode): Promise<string> {
     try {
-      const result = await ep.client.callTool(tool, args);
+      const result = await this.callTool(ep, tool, args);
       const text = result.text.trim();
       const isJson = text.startsWith('{') || text.startsWith('[');
       const verdict = classifyToolText(text);
       if (verdict === 'login_required' && !isJson) this.rememberLogin(ep, 'logged_out', null, text.slice(0, 160));
-      if (mode === 'write') {
-        if (verdict === 'success') return result.text;
+      if (mode === 'write' || mode === 'write_json') {
         if (verdict === 'failure' || verdict === 'login_required') throw new McpError('tool', text, { data: result, method: 'tools/call' });
+        if (verdict === 'success') return result.text;
+        if (mode === 'write_json' && isJson) return result.text;
         throw new UnconfirmedWriteError(tool, text);
       }
       if (!isJson && (verdict === 'failure' || verdict === 'login_required')) {
@@ -1045,7 +1757,7 @@ export class McpXhsProvider implements XhsProvider {
       return { endpoint: ep, tools, unreachable: null, login: 'unknown', loginDetail: 'check_login_status tool not exposed', username: null };
     }
     try {
-      const res = await ep.client.callTool('check_login_status', {});
+      const res = await this.callTool(ep, 'check_login_status', {});
       const parsed = parseLoginStatusText(res.text);
       this.rememberLogin(ep, parsed.logged_in ? 'logged_in' : 'logged_out', parsed.username, res.text.trim().slice(0, 160));
       return { endpoint: ep, tools, unreachable: null, login: parsed.logged_in ? 'logged_in' : 'logged_out', loginDetail: res.text.slice(0, 120), username: parsed.username };

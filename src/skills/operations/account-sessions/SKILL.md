@@ -13,7 +13,9 @@ unreachable or wrong-account session is surfaced as such.
 ## Inputs
 - `syncAccountAuth(ctx, accountId)` / `syncFleetAuth(ctx, dealerId)` — account or dealer ids.
 - `startAccountLogin(ctx, accountId | null, actor)` — null targets the research instance.
+- `logoutAccount(ctx, accountId, actor)` — delete that instance's session (cookies) and leave the account `requires_auth`.
 - `setAccountEndpoint(ctx, accountId, url | null, actor)` — http(s) URL of the account's own instance, or null to unbind.
+- `startAccountInstance(ctx, accountId, actor)` — on a host that runs the instances itself (`XHS_MCP_BIN` + `XHS_MCP_DATA_DIR` + `XHS_MCP_TOKEN`): start this account's own instance and bind it. Elsewhere a `PolicyError` names the fleet-script command for that host.
 - `recordCapabilitySnapshots(ctx, report, accountId?)` — a provider `CapabilityReport`.
 - `getAccountSessions(ctx, dealerId)`.
 - Skill `account-sessions`: `{action: 'sync' | 'sessions', dealer_id?, account_id?}` (sync needs one of them, sessions needs `dealer_id`).
@@ -34,14 +36,17 @@ unreachable or wrong-account session is surfaced as such.
 - The first verified user id is stored; it is never silently replaced.
 - Endpoint URLs: http(s) only, no embedded username/password (tokens only via env), normalized, unique across accounts
   (also enforced by the `uq_account_mcp_endpoint` index). Changing or removing an endpoint resets `auth_state` to unknown.
+- Starting an instance never duplicates a session: a healthy instance is reused (`started: false`), a live but silent
+  instance process is reported instead of getting a second process, and env-pinned accounts are refused. The new
+  instance is logged out — login stays a separate human step and `auth_state` is `unknown` until a probe runs.
 - Audit events: `account.auth_synced` (only when the state or verified id changed), `account.login_qrcode_requested`
-  (without the image), `account.endpoint_updated`.
+  (without the image), `account.endpoint_updated`, `account.instance_started`.
 - Provider calls happen before the synchronous DB transaction.
 
 ## Runtime entry points
 - Operator workflow `refresh_dealer_data` (daily) → `syncFleetAuth` so health and assignment see real session states.
-- Console 账号 page → `getAccountSessions`, "扫码登录" → `startAccountLogin`, endpoint form → `setAccountEndpoint`,
-  "检测登录" → `syncAccountAuth`.
+- Console 账号 page → `getAccountSessions`, 「启动本机实例」 → `startAccountInstance`, "扫码登录" → `startAccountLogin`, endpoint form → `setAccountEndpoint`,
+  "检测登录" → `syncAccountAuth`, 「退出登录」 → `logoutAccount`.
 - Skill registry `account-sessions` for the Automotive Operator.
 
 ## Failure modes

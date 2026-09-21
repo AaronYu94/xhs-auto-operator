@@ -11,7 +11,10 @@ import { describeError } from '../operator/workflow-engine.ts';
 import { registerContentRoutes } from './api/content.ts';
 import { registerDealerRoutes } from './api/dealers.ts';
 import { registerLeadRoutes } from './api/leads.ts';
+import { registerNotificationRoutes } from './api/notifications.ts';
+import { registerVehicleRoutes } from './api/vehicles.ts';
 import { registerOpsRoutes } from './api/ops.ts';
+import { registerMediaRoutes } from './api/media.ts';
 import { registerPublishingRoutes } from './api/publishing.ts';
 import { registerSalesRoutes } from './api/sales.ts';
 import { registerSetupRoutes } from './api/setup.ts';
@@ -32,7 +35,7 @@ import {
 } from './auth.ts';
 import { METHODS, Router, parseJsonBody, readRawBody, sendReply, toErrorReply, type Method, type Reply, type RequestContext } from './http.ts';
 import { registerPages } from './pages/index.ts';
-import { bareLayout, esc } from './render.ts';
+import { bareLayout, esc, markSvg } from './render.ts';
 import { serverOptions, type ServerOptions, type ServerRuntime } from './runtime.ts';
 
 const READY_PROBE_TIMEOUT_MS = 8_000;
@@ -46,7 +49,7 @@ function loginPage(options: ServerOptions, next: string, error: string | null): 
   return bareLayout(
     '登录',
     `<div class="login-card stack">
-  <div class="brand"><span class="logo"></span>AI 汽车运营官</div>
+  <div class="login-brand">${markSvg()}驭客 Steer</div>
   <p class="muted small">${options.auth_enabled ? '请输入您的姓名和控制台密码。姓名会记录在审核、发送和成交等操作的审计日志中。' : '开发模式未设置控制台密码：填写姓名即可，姓名用于审计记录。'}</p>
   ${error ? `<div class="banner banner-red">${esc(error)}</div>` : ''}
   <form class="stack" method="post" action="/login">
@@ -149,10 +152,25 @@ export function buildRouter(runtime: ServerRuntime, options: ServerOptions): Rou
   registerDealerRoutes(router, runtime);
   registerLeadRoutes(router, runtime);
   registerOpsRoutes(router, runtime);
+  registerNotificationRoutes(router, runtime);
+  registerVehicleRoutes(router, runtime);
   registerSalesRoutes(router, runtime, options);
   registerSetupRoutes(router, runtime);
   registerContentRoutes(router, runtime);
   registerPublishingRoutes(router, runtime);
+  // A vehicle photo is proxied only when the URL is one this installation actually stored on a vehicle.
+  registerMediaRoutes(router, {
+    isStoredVehicleImage: (url) =>
+      runtime.ctx.db
+        .all<{ images: string }>("SELECT images FROM vehicles WHERE images LIKE '%' || ? || '%'", url)
+        .some((row) => {
+          try {
+            return (JSON.parse(row.images) as unknown[]).some((i) => typeof i === 'string' && i.trim() === url);
+          } catch {
+            return false;
+          }
+        }),
+  });
   registerPages(router, { runtime, options });
   return router;
 }

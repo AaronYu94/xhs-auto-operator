@@ -564,7 +564,7 @@ function outreachAction(o: Outreach, label: '私信' | '跟进私信'): string |
     case 'APPROVED':
       return o.capability_status === 'AVAILABLE'
         ? `${label}已审核通过：等待系统发送`
-        : `在小红书App中发送已审核${label}并标记已发送`;
+        : `由负责账号在小红书人工发送已审核${label}并登记`;
     case 'BLOCKED':
       return `${label}被拦截：${o.blocked_reason?.trim() || '未通过发送前检查'}`;
     case 'FAILED':
@@ -624,10 +624,25 @@ function appointmentAction(ctx: AppContext, lead: Lead): string {
 }
 
 /** Recommended next action (Chinese) derived from stage, outreach, conversation hand-off and appointments. */
+/**
+ * Machine lost-reason codes written by automated steps. Everything else in `lost_reason` is text a human wrote, and is
+ * shown as it is — the code stays in the column (analytics group by it), the operator reads the label.
+ */
+export const LOST_REASON_LABEL: Readonly<Record<string, string>> = {
+  industry_account: '车商/销售账号，不是买家',
+  llm_screen: '大模型复核：不是本地在市买家',
+};
+
+export function lostReasonText(reason: string | null | undefined): string {
+  const r = (reason ?? '').trim();
+  if (!r) return DEFAULT_LOST_REASON;
+  return LOST_REASON_LABEL[r] ?? r;
+}
+
 export function computeNextAction(ctx: AppContext, lead: Lead): string {
   if (lead.suppressed) return SUPPRESSION_NEXT_ACTION;
   if (lead.stage === 'WON') return '已成交';
-  if (lead.stage === 'LOST') return `已流失：${lead.lost_reason?.trim() || DEFAULT_LOST_REASON}`;
+  if (lead.stage === 'LOST') return `已流失：${lostReasonText(lead.lost_reason)}`;
 
   const handoff = ctx.db
     .table('conversations')

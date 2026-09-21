@@ -13,6 +13,7 @@
 import type { AppContext } from '../../../app/context.ts';
 import { AppError, PolicyError, ValidationError } from '../../../core/errors.ts';
 import { newId } from '../../../core/ids.ts';
+import { DAY_MS } from '../../../core/time.ts';
 import { truncate } from '../../../core/text.ts';
 import {
   ACTOR_TYPES,
@@ -20,6 +21,7 @@ import {
   type ActorType,
   type CapabilityStatus,
   type DataMode,
+  type Dealer,
   type Evidence,
   type PrefilterResult,
   type PublicComment,
@@ -30,14 +32,16 @@ import {
 } from '../../../core/types.ts';
 import { type Validator, v } from '../../../core/validate.ts';
 import { aggregateActorType, classifyActor } from '../../../domain/actor-classification.ts';
+import { getBrandInfo, isDealerAccountName } from '../../../domain/automotive-lexicon.ts';
 import { toCount, xhsNoteUrl, xhsProfileUrl } from '../../../providers/xhs/mcp-provider.ts';
-import type { ProviderMode, XhsAuthor, XhsComment, XhsNoteDetail } from '../../../providers/xhs/types.ts';
+import type { ProviderMode, ProviderResult, XhsAuthor, XhsComment, XhsNoteDetail, XhsNoteSummary } from '../../../providers/xhs/types.ts';
 import { defineSkill } from '../../registry.ts';
 import { getDealer } from '../../operations/dealer-brain/index.ts';
 import { selectQueriesToRun } from '../automotive-query-generation/intelligence.ts';
 import { analyzedTextFor, prefilter } from '../intent-detection/nlu.ts';
 import { upsertLeadFromSignal } from '../lead-deduplication/index.ts';
-import { GroupEvaluator, groupDealerIds } from './evaluate.ts';
+import { GroupEvaluator, groupDealerIds, type DealerSignalResult } from './evaluate.ts';
+import { SCREEN_ROLE_ACTOR, areaLabel, inTargetArea, screenCandidates, type TargetArea } from './llm-screen.ts';
 
 export { GroupEvaluator, groupDealerIds, type DealerSignalResult } from './evaluate.ts';
 
@@ -55,9 +59,46 @@ export const DEFAULT_MAX_COMMENTS_PER_POST = 50;
 export const DEFAULT_MAX_QUERIES = 8;
 export const MAX_POSTS_CAP = 50;
 export const MAX_COMMENTS_CAP = 500;
-/** search window sent to the provider (xiaohongshu-mcp maps it to its coarse 半年内 filter) */
-export const SEARCH_WINDOW_DAYS = 90;
+/**
+ * Only fresh content is worth a lead: notes published within this many days are searched (xiaohongshu-mcp maps it to
+ * its 一周内 filter; the exact window is applied when a timestamp is known) and older comments are neither screened nor
+ * turned into leads. A buyer's week-old question is usually settled.
+ */
+export const LEAD_FRESH_DAYS = 7;
+/** @deprecated kept for callers: the search window is LEAD_FRESH_DAYS */
+export const SEARCH_WINDOW_DAYS = LEAD_FRESH_DAYS;
+/**
+ * A note fetched this recently (by any query, including an earlier one in the same batch) is not re-read: its
+ * comments were ingested then, and every re-read costs a live browser page load. The next day's run reads it again.
+ */
+export const REFETCH_AFTER_MS = 12 * 60 * 60 * 1000;
+/**
+ * Search ordering and how many results are considered before choosing which notes to read. '综合' (general) surfaces
+ * the discussions buyers write and comment on; '最新' (latest) is dominated by dealer stores' daily promotion posts
+ * (2026-09 live capture: 13 of 17 notes). One results page (~20) is considered; the notes read are chosen from it.
+ */
+export const SEARCH_SORT = 'general' as const;
+export const SEARCH_RESULTS_CONSIDERED = 20;
+
+/**
+ * Which search results to read (pure): notes by dealer store / sales accounts (account name, see
+ * DEALER_ACCOUNT_NAME_RE) are skipped, the rest are read most-commented first — buyers ask in the comments of popular
+ * discussions — keeping the platform's order among equal / unknown counts.
+ */
+export function selectNotesToRead<T extends XhsNoteSummary>(results: T[], maxPosts: number): { notes: T[]; skipped_seller: number } {
+  const open = results.filter((n) => !isDealerAccountName(n.author?.nickname));
+  const ranked = open
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (b.n.comment_count ?? -1) - (a.n.comment_count ?? -1) || a.i - b.i)
+    .map((x) => x.n);
+  return { notes: ranked.slice(0, maxPosts), skipped_seller: results.length - open.length };
+}
 export const NO_QUERIES_REASON = '没有可运行的搜索词，请先下达经营目标生成搜索词';
+/**
+ * A retryable search failure on a reachable, logged-in instance (e.g. a xiaohongshu-mcp tool timeout) fails only that
+ * query; this many in a row stop the batch, because then the instance is likely unhealthy and should not be hammered.
+ */
+export const MAX_CONSECUTIVE_TRANSIENT_FAILURES = 2;
 
 /** Policy refusals from lead-deduplication that are expected outcomes of discovery, not failures. */
 const EXPECTED_POLICY_CODES = new Set(['not_a_purchase_signal', 'managed_account_identity', 'signal_identity_conflict']);
@@ -76,6 +117,10 @@ export interface IngestInput {
   search_run_id?: string | null;
   query_id?: string | null;
   data_mode?: IngestDataMode;
+  /** where the goal wants buyers; null / absent = anywhere */
+  area?: TargetArea | null;
+  /** ISO time: texts published before it are stored but never screened or turned into leads */
+  fresh_since?: string | null;
 }
 
 export interface IngestSummary {
@@ -101,6 +146,19 @@ export interface IngestSummary {
   /** texts without an author id (cannot be attributed to a person) */
   skipped_anonymous: number;
   rejected_by_policy: number;
+  /** who made the final buyer call: the LLM screen (when available) or the rules alone */
+  screened_by: 'llm' | 'rules';
+  /** candidates the LLM classified */
+  llm_screened: number;
+  /** candidates the LLM classified as owner / dealer / advice / chatter */
+  llm_rejected: number;
+  /** candidates left without a valid LLM verdict (call failed or output invalid): never leads */
+  llm_unscreened: number;
+  /** buyers outside the goal's area */
+  out_of_area: number;
+  /** texts published before `fresh_since` (stored, not evaluated) */
+  stale_skipped: number;
+  llm_model: string | null;
 }
 
 export interface DiscoveryBlock {
@@ -199,6 +257,8 @@ export const ingestInputValidator: Validator<IngestInput> = v.object({
   search_run_id: v.optional(v.nullable(v.string({ min: 1 }))),
   query_id: v.optional(v.nullable(v.string({ min: 1 }))),
   data_mode: v.optional(dataModeV),
+  area: v.optional(v.nullable(v.object({ city: nullableString, province: nullableString }))),
+  fresh_since: v.optional(v.nullable(v.string({ min: 1 }))),
 });
 
 const limitsV: Validator<DiscoveryLimits> = v.object({
@@ -363,6 +423,8 @@ interface TextItem {
   signal_at: string;
   comment: PublicComment | null;
   prefilter: PrefilterResult;
+  /** text of the comment this one replies to (context for the LLM screen) */
+  reply_to: string | null;
 }
 
 /**
@@ -399,7 +461,18 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
     skipped_managed: 0,
     skipped_anonymous: 0,
     rejected_by_policy: 0,
+    screened_by: ctx.llm.status().status === 'AVAILABLE' ? 'llm' : 'rules',
+    llm_screened: 0,
+    llm_rejected: 0,
+    llm_unscreened: 0,
+    out_of_area: 0,
+    stale_skipped: 0,
+    llm_model: null,
   };
+  const llmOn = summary.screened_by === 'llm';
+  const area = req.area ?? null;
+  const freshSince = req.fresh_since ?? null;
+  const brands = dealer.brands.map((b) => getBrandInfo(b)?.brand_zh ?? b);
   const users = new Set<string>();
   const touched = new Set<string>();
   const created = new Set<string>();
@@ -429,9 +502,11 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
         signal_at: note.published_at ?? ctx.clock.iso(),
         comment: null,
         prefilter: prefilter(note.content, context),
+        reply_to: null,
       });
     }
     const comments = flattenComments(note.comments);
+    const commentText = new Map(comments.map((c) => [c.platform_comment_id, c.content]));
     ctx.db.tx(() => {
       for (const c of comments) {
         const context: SignalContext = { source_type: 'comment', ...postContext, ip_location: c.ip_location, author_nickname: c.author.nickname };
@@ -447,6 +522,7 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
           signal_at: c.published_at ?? ctx.clock.iso(),
           comment: row,
           prefilter: pf,
+          reply_to: c.parent_comment_id ? (commentText.get(c.parent_comment_id) ?? null) : null,
         });
       }
     });
@@ -457,6 +533,8 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
     const noteLeads = new Set<string>();
     let noteSignals = 0;
     let noteBelow = 0;
+    const noteScreen = { stale: 0, candidates: 0, buyers: 0, rejected: {} as Record<string, number>, unscreened: 0, out_of_area: 0, failures: [] as string[] };
+    const candidates: { item: TextItem; best: DealerSignalResult; actor: ActorType }[] = [];
 
     for (const item of items) {
       const uid = item.author.platform_user_id;
@@ -466,6 +544,11 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
       }
       if (managed.has(uid)) {
         summary.skipped_managed++;
+        continue;
+      }
+      if (freshSince && Date.parse(item.signal_at) < Date.parse(freshSince)) {
+        summary.stale_skipped++;
+        noteScreen.stale++;
         continue;
       }
       users.add(uid);
@@ -492,14 +575,77 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
       if (!evaluation) continue;
       const { best } = evaluation;
       const actor = classifyActor(best.detection, item.prefilter);
-      summary.by_actor_type[actor.actor_type]++;
-      noteActors[actor.actor_type]++;
-      if (actor.actor_type !== 'BUYER') continue;
-      if (best.score < evaluator.config(best.dealer_id).thresholds.candidate) {
-        summary.below_candidate++;
-        noteBelow++;
+      if (actor.actor_type !== 'BUYER' || best.score < evaluator.config(best.dealer_id).thresholds.candidate) {
+        summary.by_actor_type[actor.actor_type]++;
+        noteActors[actor.actor_type]++;
+        if (actor.actor_type === 'BUYER') {
+          summary.below_candidate++;
+          noteBelow++;
+        }
         continue;
       }
+      candidates.push({ item, best, actor: actor.actor_type });
+    }
+
+    // The rules only nominate: with an LLM, a candidate is a buyer only if the LLM screen says so (llm-screen.ts).
+    noteScreen.candidates = candidates.length;
+    const screen =
+      llmOn && candidates.length > 0
+        ? await screenCandidates(
+            ctx,
+            { title: post.title, content: post.content },
+            candidates.map((c, i) => ({
+              id: `i${i}`,
+              source_type: c.item.source_type,
+              text: c.item.content,
+              author_nickname: c.item.author.nickname ?? null,
+              ip_location: c.item.context.ip_location ?? null,
+              reply_to: c.item.reply_to,
+            })),
+            brands,
+          )
+        : null;
+    if (screen) {
+      summary.llm_model = screen.model ?? summary.llm_model;
+      noteScreen.failures = screen.failures.slice(0, 3);
+    }
+
+    for (const [idx, cand] of candidates.entries()) {
+      const { item, best } = cand;
+      const uid = item.author.platform_user_id as string;
+      let actorType: ActorType = cand.actor;
+      let detection = best.detection;
+      let stated: string | null = null;
+      if (llmOn) {
+        const verdict = screen?.verdicts.get(`i${idx}`);
+        if (!verdict) {
+          summary.llm_unscreened++;
+          noteScreen.unscreened++;
+          summary.by_actor_type.UNKNOWN++;
+          noteActors.UNKNOWN++;
+          continue;
+        }
+        summary.llm_screened++;
+        actorType = SCREEN_ROLE_ACTOR[verdict.role];
+        if (verdict.role !== 'buyer') {
+          summary.llm_rejected++;
+          noteScreen.rejected[verdict.role] = (noteScreen.rejected[verdict.role] ?? 0) + 1;
+          summary.by_actor_type[actorType]++;
+          noteActors[actorType]++;
+          continue;
+        }
+        detection = { ...detection, evidence: [...detection.evidence, { code: 'llm_screen', label: `大模型复核：${verdict.reason}`, quote: verdict.quote }] };
+        stated = verdict.location;
+      }
+      summary.by_actor_type[actorType]++;
+      noteActors[actorType]++;
+      const where = inTargetArea(area, item.context.ip_location ?? null, stated);
+      if (!where.inside) {
+        summary.out_of_area++;
+        noteScreen.out_of_area++;
+        continue;
+      }
+      noteScreen.buyers++;
 
       let result;
       try {
@@ -509,6 +655,7 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
             platform_user_id: uid,
             username: item.author.nickname?.trim() || uid,
             profile_url: item.author.profile_url ?? (mode === 'simulation' ? null : xhsProfileUrl(uid)),
+            avatar_url: item.author.avatar_url ?? null,
           },
           signal: {
             source_type: item.source_type,
@@ -519,7 +666,7 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
             signal_at: item.signal_at,
             search_run_id: runId,
             query_id: queryId,
-            detection: { ...best.detection, actor_type: actor.actor_type },
+            detection: { ...detection, actor_type: actorType },
           },
           attributed_post_id: post.own_post_id,
         });
@@ -538,7 +685,7 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
       noteSignals++;
       if (result.created) created.add(result.lead.id);
       else if (!created.has(result.lead.id)) merged.add(result.lead.id);
-      applyProvenance(ctx, result.lead.id, result.signal.id, actor.actor_type, mode);
+      applyProvenance(ctx, result.lead.id, result.signal.id, actorType, mode);
     }
 
     ctx.audit.decision({
@@ -564,6 +711,7 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
         below_candidate: noteBelow,
         signals_created: noteSignals,
         lead_ids: [...noteLeads],
+        screen: { by: summary.screened_by, target_area: areaLabel(area), ...noteScreen },
       },
       confidence: 1,
       engine: 'rules',
@@ -590,6 +738,18 @@ export async function ingestPublicContent(ctx: AppContext, input: IngestInput): 
 // Search runs
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Where the query's goal wants buyers: the goal's place, else the store's city / province; `null` when the goal said
+ * 全国 (GoalSpec.nationwide). Queries without a goal serve the store's own area.
+ */
+export function targetAreaFor(ctx: AppContext, dealer: Dealer, goalId: string | null): TargetArea | null {
+  const spec = goalId ? ctx.db.table('operator_goals').get(goalId)?.spec : undefined;
+  if (spec?.nationwide) return null;
+  const city = spec?.location ?? (spec?.province ? null : dealer.city) ?? null;
+  const province = spec?.province ?? (spec?.location ? null : dealer.province) ?? null;
+  return city || province ? { city, province } : null;
+}
+
 const failureStatus = (status: string): Exclude<CapabilityStatus, 'AVAILABLE'> =>
   status === 'REQUIRES_AUTH' || status === 'REQUIRES_REVIEW' ? status : 'UNAVAILABLE';
 
@@ -601,9 +761,32 @@ interface ExecutedRun {
   run: SearchRun;
   lead_ids: string[];
   block: Omit<DiscoveryBlock, 'query_id'> | null;
+  /** the search itself failed transiently (retryable UNAVAILABLE): only this query failed */
+  transient: boolean;
 }
 
-async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string; query_id: string; limits?: DiscoveryLimits }): Promise<ExecutedRun> {
+/** Live progress of one search query (see DiscoveryProgress). */
+export interface QueryProgress {
+  phase: 'search' | 'read' | 'screen';
+  notes_total: number;
+  notes_done: number;
+}
+
+/** Live progress of a discovery batch, reported while it runs (workflow step `progress`). */
+export interface DiscoveryProgress extends QueryProgress {
+  queries_total: number;
+  /** 1-based index of the query being run */
+  query_index: number;
+  query_text: string;
+  /** totals of the queries already finished in this batch */
+  done: { posts: number; comments: number; qualified: number };
+}
+
+async function executeSearchQuery(
+  ctx: AppContext,
+  rawInput: { dealer_id: string; query_id: string; limits?: DiscoveryLimits },
+  onProgress: (p: QueryProgress) => void = () => {},
+): Promise<ExecutedRun> {
   const req = runSearchQueryInputV(rawInput, 'input');
   const dealer = getDealer(ctx, req.dealer_id);
   const query = ctx.db.table('search_queries').get(req.query_id);
@@ -671,26 +854,47 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
   if (capability.status !== 'AVAILABLE') {
     const status = failureStatus(capability.status);
     const reason = `${capability.status}: ${capability.reason}`;
-    return { run: finish({ status: 'UNAVAILABLE', error: reason }, { stage: 'capability' }), lead_ids: [], block: { status, reason } };
+    return { run: finish({ status: 'UNAVAILABLE', error: reason }, { stage: 'capability' }), lead_ids: [], block: { status, reason }, transient: false };
   }
 
-  const search = await provider.searchNotes(query.text, { sort: 'latest', limit: maxPosts, published_within_days: SEARCH_WINDOW_DAYS }, null);
+  const searchOpts = { sort: SEARCH_SORT, limit: Math.max(maxPosts, SEARCH_RESULTS_CONSIDERED), published_within_days: LEAD_FRESH_DAYS } as const;
+  let search = await provider.searchNotes(query.text, searchOpts, null);
+  // A retryable search failure is usually the search page not being ready (filter panel, slow render): reading is safe
+  // to repeat, so one more attempt before the query counts as failed.
+  if (!search.ok && search.status === 'UNAVAILABLE' && search.retryable === true) {
+    search = await provider.searchNotes(query.text, searchOpts, null);
+  }
   if (!search.ok) {
     const status = failureStatus(search.status);
     const reason = `${search.status}: ${search.reason}`;
-    const blocking = search.status === 'UNAVAILABLE' || search.status === 'REQUIRES_AUTH';
+    // The capability check just passed and the provider re-verifies the login after a failed read, so a retryable
+    // UNAVAILABLE here is a transient tool failure (timeout) of this query, not an unreachable or logged-out instance.
+    const transient = search.status === 'UNAVAILABLE' && search.retryable === true;
+    const blocking = !transient && (search.status === 'UNAVAILABLE' || search.status === 'REQUIRES_AUTH');
     const done = finish({ status: blocking ? 'UNAVAILABLE' : 'FAILED', error: reason }, { stage: 'search', retryable: search.retryable === true });
-    return { run: done, lead_ids: [], block: blocking ? { status, reason } : null };
+    return { run: done, lead_ids: [], block: blocking ? { status, reason } : null, transient };
   }
 
-  const found = search.data.slice(0, maxPosts);
+  const selection = selectNotesToRead(search.data, maxPosts);
+  const found = selection.notes;
   const collected: IngestNote[] = [];
   const failures: { platform_post_id: string; stage: 'detail' | 'comments'; status: string; reason: string }[] = [];
   let authStop: { status: Exclude<CapabilityStatus, 'AVAILABLE'>; reason: string } | null = null;
 
-  for (const summary of found) {
+  const refetchCutoff = new Date(ctx.clock.now().getTime() - REFETCH_AFTER_MS).toISOString();
+  const toRead = found.filter(
+    (n) => !ctx.db.get('SELECT 1 FROM public_posts WHERE platform = ? AND platform_post_id = ? AND fetched_at >= ?', PLATFORM, n.platform_post_id, refetchCutoff),
+  );
+  const commentOpts = { include_replies: true, limit: maxComments };
+  // One page load per note when the provider supports it (detail + comments together).
+  const combined = maxComments > 0 && typeof provider.getNoteWithComments === 'function';
+
+  onProgress({ phase: 'read', notes_total: toRead.length, notes_done: 0 });
+  for (const [noteIdx, summary] of toRead.entries()) {
+    if (noteIdx > 0) onProgress({ phase: 'read', notes_total: toRead.length, notes_done: noteIdx });
     const ref = { platform_post_id: summary.platform_post_id, xsec_token: summary.xsec_token ?? null };
-    const detail = await provider.getNote(ref, null);
+    const both = combined ? await provider.getNoteWithComments!(ref, commentOpts, null) : null;
+    const detail: ProviderResult<XhsNoteDetail> = both ? (both.ok ? { ok: true, data: both.data.note } : both) : await provider.getNote(ref, null);
     if (!detail.ok) {
       failures.push({ platform_post_id: ref.platform_post_id, stage: 'detail', status: detail.status, reason: truncate(detail.reason, 300) });
       if (detail.status === 'REQUIRES_AUTH') {
@@ -699,11 +903,11 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
       }
       continue;
     }
-    let comments: XhsComment[] = [];
-    if (maxComments > 0) {
+    let comments: XhsComment[] = both?.ok ? both.data.comments : [];
+    if (!combined && maxComments > 0) {
       const res = await provider.getComments(
         { platform_post_id: detail.data.platform_post_id, xsec_token: detail.data.xsec_token ?? ref.xsec_token },
-        { include_replies: true, limit: maxComments },
+        commentOpts,
         null,
       );
       if (res.ok) comments = res.data;
@@ -716,11 +920,20 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
     if (authStop) break;
   }
 
+  onProgress({ phase: 'screen', notes_total: toRead.length, notes_done: collected.length });
   const ingestMode: IngestDataMode = mode === 'unknown' ? 'import' : mode;
   let ingest: IngestSummary | null = null;
   try {
     if (collected.length > 0) {
-      ingest = await ingestPublicContent(ctx, { dealer_id: dealer.id, notes: collected, search_run_id: run.id, query_id: query.id, data_mode: ingestMode });
+      ingest = await ingestPublicContent(ctx, {
+        dealer_id: dealer.id,
+        notes: collected,
+        search_run_id: run.id,
+        query_id: query.id,
+        data_mode: ingestMode,
+        area: targetAreaFor(ctx, dealer, query.goal_id),
+        fresh_since: new Date(ctx.clock.now().getTime() - LEAD_FRESH_DAYS * DAY_MS).toISOString(),
+      });
     }
   } catch (err) {
     const message = err instanceof AppError ? `${err.code}: ${err.message}` : ((err as Error)?.message ?? String(err));
@@ -728,7 +941,7 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
       { status: 'FAILED', error: truncate(`ingest failed: ${message}`, 1000), posts_discovered: found.length },
       { stage: 'ingest', notes_failed: failures.length, failures: failures.slice(0, 5) },
     );
-    return { run: done, lead_ids: [], block: null };
+    return { run: done, lead_ids: [], block: null, transient: false };
   }
 
   const leadIds = ingest?.lead_ids ?? [];
@@ -744,6 +957,9 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
   };
   const details = {
     notes_fetched: collected.length,
+    notes_skipped_recent: found.length - toRead.length,
+    search_results: search.data.length,
+    notes_skipped_seller: selection.skipped_seller,
     notes_failed: failures.length,
     failures: failures.slice(0, 5),
     prefilter_rejected: ingest?.prefilter_rejected ?? 0,
@@ -754,14 +970,14 @@ async function executeSearchQuery(ctx: AppContext, rawInput: { dealer_id: string
   };
 
   if (authStop) {
-    return { run: finish({ ...counters, status: 'UNAVAILABLE', error: authStop.reason }, { stage: 'read', ...details }), lead_ids: leadIds, block: authStop };
+    return { run: finish({ ...counters, status: 'UNAVAILABLE', error: authStop.reason }, { stage: 'read', ...details }), lead_ids: leadIds, block: authStop, transient: false };
   }
-  if (found.length > 0 && collected.length === 0) {
+  if (toRead.length > 0 && collected.length === 0) {
     const first = failures[0];
-    const error = truncate(`${found.length} 篇笔记均读取失败：${first ? `${first.status}: ${first.reason}` : 'unknown'}`, 1000);
-    return { run: finish({ ...counters, status: 'FAILED', error }, { stage: 'read', ...details }), lead_ids: [], block: null };
+    const error = truncate(`${toRead.length} 篇笔记均读取失败：${first ? `${first.status}: ${first.reason}` : 'unknown'}`, 1000);
+    return { run: finish({ ...counters, status: 'FAILED', error }, { stage: 'read', ...details }), lead_ids: [], block: null, transient: false };
   }
-  return { run: finish({ ...counters, status: 'SUCCEEDED', error: null }, { stage: 'done', ...details }), lead_ids: leadIds, block: null };
+  return { run: finish({ ...counters, status: 'SUCCEEDED', error: null }, { stage: 'done', ...details }), lead_ids: leadIds, block: null, transient: false };
 }
 
 /** Run one stored search query through the provider and ingest what it returns (never throws for provider failures). */
@@ -774,9 +990,10 @@ export async function runSearchQuery(
 
 /**
  * Run the dealer's next queries sequentially. Stops at the first UNAVAILABLE / REQUIRES_AUTH run and reports it as
- * `blocked` (a logged-out or unreachable instance must not be hammered with the remaining queries).
+ * `blocked` (a logged-out or unreachable instance must not be hammered with the remaining queries). A transient search
+ * failure (retryable, e.g. a tool timeout) only fails its own query; MAX_CONSECUTIVE_TRANSIENT_FAILURES in a row block.
  */
-export async function runDiscovery(ctx: AppContext, input: DiscoveryInput): Promise<DiscoveryResult> {
+export async function runDiscovery(ctx: AppContext, input: DiscoveryInput, onProgress: (p: DiscoveryProgress) => void = () => {}): Promise<DiscoveryResult> {
   const req = discoveryInputValidator(input, 'input');
   const dealer = getDealer(ctx, req.dealer_id);
   const queries = selectQueriesToRun(ctx, dealer.id, req.max_queries ?? DEFAULT_MAX_QUERIES, req.goal_id ?? null);
@@ -789,12 +1006,26 @@ export async function runDiscovery(ctx: AppContext, input: DiscoveryInput): Prom
   const runs: SearchRun[] = [];
   const touched = new Set<string>();
   let blocked: DiscoveryBlock | null = null;
+  let transientInARow = 0;
   for (const q of queries) {
-    const executed = await executeSearchQuery(ctx, { dealer_id: dealer.id, query_id: q.id, limits: req.limits });
+    const done = runs.reduce((t, r) => ({ posts: t.posts + r.posts_discovered, comments: t.comments + r.comments_scanned, qualified: t.qualified + r.qualified }), {
+      posts: 0,
+      comments: 0,
+      qualified: 0,
+    });
+    const report = (p: QueryProgress) => onProgress({ ...p, queries_total: queries.length, query_index: runs.length + 1, query_text: q.text, done });
+    report({ phase: 'search', notes_total: 0, notes_done: 0 });
+    const executed = await executeSearchQuery(ctx, { dealer_id: dealer.id, query_id: q.id, limits: req.limits }, report);
     runs.push(executed.run);
     for (const id of executed.lead_ids) touched.add(id);
-    if (executed.block) {
-      blocked = { ...executed.block, query_id: q.id };
+    transientInARow = executed.transient ? transientInARow + 1 : 0;
+    const block =
+      executed.block ??
+      (transientInARow >= MAX_CONSECUTIVE_TRANSIENT_FAILURES
+        ? { status: 'UNAVAILABLE' as const, reason: `连续 ${transientInARow} 个搜索词都失败了，其余搜索词本次暂停：${executed.run.error ?? ''}` }
+        : null);
+    if (block) {
+      blocked = { ...block, query_id: q.id };
       ctx.audit.event({
         actor: ACTOR,
         action: 'discovery.blocked',

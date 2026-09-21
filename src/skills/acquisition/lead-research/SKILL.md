@@ -56,6 +56,9 @@ from the lead's existing evidence; no other write.
 
 ## Validation & guarantees
 
+- `detectIndustryAccount` also flags store / staff account names (`DEALER_ACCOUNT_NAME_RE`, e.g. `…销售服务中心`,
+  `<品牌>汽车 | 小李`), quoting the nickname; an IP 属地 in the dealer's province never makes such an account local.
+
 - Provider calls happen before any transaction; everything after them is synchronous (`ctx.db.tx` never spans an await).
 - Skip reasons are explicit: `<CAPABILITY_STATUS>: <provider reason>` (e.g. `UNAVAILABLE: No Xiaohongshu integration
   configured`), `<status>: <reason>` of a failed `getUserProfile`, `UNAVAILABLE: capability check failed: …` /

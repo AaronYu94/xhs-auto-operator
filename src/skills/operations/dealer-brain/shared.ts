@@ -15,6 +15,7 @@ export const DEFAULT_DEALER_SETTINGS: DealerSettings = Object.freeze({
   max_ai_conversation_turns: 6,
   auto_send_min_score: 90,
   timezone: DEFAULT_TZ,
+  dm_channel: 'app',
 });
 
 /** Setting keys accepted in dealer seeds (anything else is a typo and rejected). */

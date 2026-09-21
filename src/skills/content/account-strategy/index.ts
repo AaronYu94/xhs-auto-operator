@@ -104,6 +104,7 @@ export const goalSpecValidator: Validator<GoalSpec> = v.object({
   models: v.array(v.string({ min: 1, max: 40 }), { max: 20 }),
   location: v.optional(v.string()),
   province: v.optional(v.string()),
+  nationwide: v.optional(v.boolean()),
   timeframe: v.optional(v.object({ label: v.string(), start: v.string(), end: v.string() })),
   target_leads: v.optional(v.number({ min: 0 })),
   notes: v.optional(v.array(v.string())),

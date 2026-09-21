@@ -125,6 +125,32 @@ describe('workflow engine: execution', () => {
     assert.equal(completed.details.duration_ms, 30_000);
   });
 
+  it('a long step can report live progress; its real output replaces it when it finishes', async () => {
+    const ctx = createTestContext();
+    const gate = deferred();
+    const engine = new WorkflowEngine([
+      {
+        name: 'lead_discovery',
+        description: '获客',
+        steps: [
+          step('discover', async (sc) => {
+            sc.progress({ query_index: 1, queries_total: 3 });
+            await gate.promise;
+            return { runs: 3 };
+          }),
+        ],
+      },
+    ]);
+    const started = engine.start(ctx, 'lead_discovery', {}, { trigger: 'manual' });
+    await new Promise((r) => setTimeout(r, 5));
+    const running = ctx.db.table('workflow_steps').findOne({ step_key: 'discover' });
+    assert.equal(running?.status, 'RUNNING');
+    assert.deepEqual(running?.output, { progress: { query_index: 1, queries_total: 3, at: ctx.clock.iso() } });
+    gate.resolve();
+    const run = await started;
+    assert.deepEqual(stepsOf(engine, ctx, run.id)[0].output, { runs: 3 });
+  });
+
   it('gives later steps the run-bound context, stored input and isolated copies of earlier outputs', async () => {
     const ctx = createTestContext();
     const seen: StepContext[] = [];

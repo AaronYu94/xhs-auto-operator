@@ -91,8 +91,8 @@ describe('server render: escaping and honest labels', () => {
   });
 
   it('never labels an unconfirmed outreach as sent', () => {
-    assert.match(outreachStatusPill('APPROVED', false), /待人工发送/);
-    assert.match(outreachStatusPill('SENT_MANUALLY'), /人工发送/);
+    assert.match(outreachStatusPill('APPROVED', false), /等人去发/);
+    assert.match(outreachStatusPill('SENT_MANUALLY'), /已由人发出/);
     assert.doesNotMatch(outreachStatusPill('READY_FOR_REVIEW'), /发送成功/);
   });
 });

@@ -18,6 +18,11 @@ export interface VehicleQuery {
   brand?: string;
   model?: string;
   trim?: string;
+  /**
+   * Archived trims (车型库 `archived_at`) are out of the line-up: they never resolve for content, outreach, answers or
+   * lead value. Only the catalog UI and history views ask for them.
+   */
+  include_archived?: boolean;
 }
 
 export interface InventoryMatch {
@@ -114,6 +119,7 @@ function rankedVehicles(ctx: AppContext, groupId: string, q: VehicleQuery): { ve
   const all = ctx.db.table('vehicles').findMany({ group_id: groupId });
   const out: { vehicle: Vehicle; rank: number }[] = [];
   for (const vehicle of all) {
+    if (vehicle.archived_at && !q.include_archived) continue;
     if (q.brand && !brandMatches(vehicle, q.brand)) continue;
     let rank = 2;
     if (q.model) {

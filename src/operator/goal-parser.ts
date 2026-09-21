@@ -225,6 +225,9 @@ export function parseGoal(text: string, dealer: Dealer, now: Date, catalog?: Goa
     if (loc.province && dealer.province && loc.province !== dealer.province) {
       notes.push(`注意：目标地域不在门店所在省份（${dealer.province}），异地线索评分会被限制`);
     }
+  } else if (/全国|不限地区|不限地域|不限城市|各地|nationwide/i.test(raw)) {
+    spec.nationwide = true;
+    notes.push('目标地域：全国（不限地区，外地买家也会成为线索）');
   } else if (/本地|同城|附近|local/i.test(raw) && dealer.city) {
     spec.location = dealer.city;
     spec.province = dealer.province;

@@ -318,8 +318,9 @@ export function getAccountBrain(ctx: AppContext, accountId: string): AccountBrai
   };
 }
 
+/** The live fleet: accounts removed from it are excluded (their rows only carry history). */
 export function listFleet(ctx: AppContext, q: { dealer_id?: string; group_id?: string } = {}): AccountBrain[] {
-  const where: { dealer_id?: string; group_id?: string } = {};
+  const where: { dealer_id?: string; group_id?: string; removed_at: null } = { removed_at: null };
   if (q.dealer_id) where.dealer_id = q.dealer_id;
   if (q.group_id) where.group_id = q.group_id;
   return ctx.db

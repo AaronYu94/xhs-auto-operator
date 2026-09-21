@@ -137,7 +137,7 @@ describe('hardening: same-day health snapshots must not go stale', () => {
     const later = byName(rankAccountsForLead(ctx, makeLead(ctx, hz)));
     const w = later['销售小王·杭州宝马'];
     assert.equal(factorOf(w, 'health').points, 3, factorOf(w, 'health').reason);
-    assert.match(factorOf(w, 'health').reason, /AT_RISK/);
+    assert.match(factorOf(w, 'health').reason, /账号存在风险/, '理由说明账号有风险，但不暴露英文枚举');
   });
 
   it('an unchanged fleet reuses today\'s snapshots without writing new health decisions', () => {

@@ -33,6 +33,7 @@ import {
   clauseAt,
   detectTimeframeMapped,
   findBrands,
+  DEALER_ACCOUNT_NAME_RE,
   findFirst,
   findLocationsMapped,
   findMatches,
@@ -208,6 +209,22 @@ const MARKETING_STRONG_RE =
 /** Buyers also write '找我老婆商量' / '联系我了' / '微信转账'; those are not solicitation. */
 const MARKETING_WEAK_RE =
   /私信我|私我|找我(?!老|家|对象|媳|爸|妈|男|女|朋友|同事|们|儿|闺|哥|姐|弟|妹|领导)|加我|联系我(?!了|过|说|们)|私聊|微信(?!支付|付款|转账|付|提现|小程序|公众号|视频号)|vx|加v|v我|威信|薇信/;
+/**
+ * Dealer-store / sales phrasing seen on real Xiaohongshu promotion posts and self-comments (2026-09 live capture,
+ * test/unit/nlu/fixtures/xhs-live-dealer-posts.json): showroom invitations, test-drive gifts, reader solicitation and
+ * the homophones used to dodge the platform's contact filter (厚台 = 后台, 🐍信 = 私信, 丝 = 私). A hit is ignored when a
+ * question follows it ('新车到店了吗', '销售服务中心在哪').
+ */
+const DEALER_TEXT_RE =
+  /品鉴|(?:展车|新车|现车|首台)[^,。!?\n]{0,4}已?到店|欢迎(?:各位)?(?:老板|前来|莅临|进店|预约)|到场试驾|试驾(?:即|就)?(?:送|领|有礼|好礼|尊享)|(?:免费|上门)试驾|预约到店|(?:可约|可预约|预约)试驾(?:直接|随时|请|可|私|找)|现车可(?:约|看|试)|来店里?(?:摸|看|试|体验)|评论区扣|扣1|厚台|厚苔|厚胎|后台(?:丝|私|滴|戳|找|发|留言|扣)|🐍[信新心]|蛇信|直接[私丝](?![信聊])|丝我|滴滴我|✉️我|在线直接fa|报底价|询[^,。!?\n]{0,8}底价|帮你算|销售服务中心|还有没有想(?:买|入手|换)|(?:买车|看车|选车)看过来/;
+const QUESTION_AFTER_RE = /^[^,。!?\n]{0,6}(?:[?]|吗|么|在哪|哪里|怎么样|靠谱|地址|电话)/;
+/**
+ * Promotion vocabulary (finance offers, deadlines, scarcity). A buyer may quote one or two of these in a question
+ * ('店里说至高2万权益，靠谱吗？'), a dealer post stacks them: ≥ 3 distinct terms, or 2 in a text without a question.
+ */
+const PROMO_TERM_RE =
+  /至高[\d.,]+[w万千]?元?|尾款减免|[0零]首付|[\d两一二三]年[0零]息|贴息|定金[^,。!?\n]{0,6}(?:锁定|解锁)|下定[^,。!?\n]{0,6}(?:解锁|锁定|享)|限时|(?:本月|当月|[一二三四五六七八九十\d]+月)(?:最新)?(?:政策|权益|福利)|购车礼|(?:置换|购车)补贴|名额有限|先到先得|手慢无|不等人|库存紧张|冲量|免费(?:升级|送|赠)|礼包|商城积分|电卡|金融方案/g;
+const PROMO_MIN_TERMS = 3;
 const BUYER_REQUEST_BEFORE_RE = /(?:求|麻烦|请|可以|能不能|能|谁|哪位|哪个|哪家|推荐|有没有人?|方便|认识|别|不要|不找|不是)[^,。!?]{0,3}$/;
 const BUYER_AFTER_SALES_RE = /^(?:靠谱|推荐|吗|\?|怎么样|电话|联系方式)/;
 
@@ -240,6 +257,8 @@ const FUTURE_OWNER_RE = /准车主|未来车主|想当车主|准备当车主|即
  */
 const BUY_DESIRE_RE =
   /(?:想|打算|准备|计划|决定)(?:再|要)?(?:买|入手|换|提|订|定)(?!的(?:朋友|姐妹|宝子|小伙伴|人|家人|话)|的?可以|过)/;
+/** '想入手的别错过', '想买轿跑的宝子看过来': the wish belongs to the readers being addressed, not the author. */
+const READER_AUDIENCE_AFTER_RE = /^[^,。!?\n]{0,12}的(?:宝子|宝宝|宝们|姐妹|朋友|小伙伴|家人|老板|别|快|速|看|冲)/;
 const PAST_DESIRE_BEFORE_RE = /(?:当初|当时|之前|本来|原本|一开始|那时|以前|曾经)[也还都就]?$/;
 /** The wanted purchase is an accessory or service, not a car ('提车半年了，打算买个充电桩'). */
 const NON_CAR_PURCHASE_AFTER_RE = /^.{0,4}?(?:充电桩|保险|车险|贴膜|车膜|车衣|脚垫|轮胎|轮毂|配件|记录仪|座套|香薰|挂件|车模|会员|保养|套餐|延保)/;
@@ -373,6 +392,15 @@ function marketingHits(mt: MappedText): TextHit[] {
   for (const h of findMatches(mt, MARKETING_WEAK_RE)) {
     if (exempt(h)) continue;
     hits.push(h);
+  }
+  for (const h of findMatches(mt, DEALER_TEXT_RE)) {
+    if (QUESTION_AFTER_RE.test(mt.norm.slice(h.end, h.end + 8))) continue;
+    hits.push(h);
+  }
+  const promo = findMatches(mt, PROMO_TERM_RE);
+  const distinct = new Set(promo.map((h) => h.text));
+  if (distinct.size >= PROMO_MIN_TERMS || (distinct.size === PROMO_MIN_TERMS - 1 && !/[?]|吗|么/.test(mt.norm))) {
+    hits.push(...promo.filter((h, i) => promo.findIndex((o) => o.text === h.text) === i));
   }
   return hits.sort((a, b) => a.start - b.start);
 }
@@ -778,7 +806,7 @@ export function analyzeSignal(text: string, context?: SignalContext, dealer?: De
   /** a question about the author's own purchase (incl. '还是纠结…选哪个？'): overrides nickname-only and weak creator hints */
   const buyingQuestion = !!askerSelf || (!!questionHit && (shoppingQuestion || !!dilemma));
 
-  const marketingNick = pf.is_marketing ? null : nickHit(MARKETING_NICK_RE);
+  const marketingNick = pf.is_marketing ? null : (nickHit(MARKETING_NICK_RE) ?? nickHit(DEALER_ACCOUNT_NAME_RE));
   const isMarketing = pf.is_marketing || !!marketingNick;
 
   /** someone else is the subject of the cue: before it, inside its clause ('朋友已经提了i3'), never a vocative */
@@ -796,6 +824,7 @@ export function analyzeSignal(text: string, context?: SignalContext, dealer?: De
     findMatches(mt, BUY_DESIRE_RE).find(
       (h) =>
         !PAST_DESIRE_BEFORE_RE.test(mt.norm.slice(Math.max(0, h.start - 5), h.start)) &&
+        !READER_AUDIENCE_AFTER_RE.test(mt.norm.slice(h.end, h.end + 16)) &&
         !NON_CAR_PURCHASE_AFTER_RE.test(mt.norm.slice(h.end, h.end + 8)),
     ) ?? null;
   /** an owner (or renter) who wants another car and asks about it is shopping again */

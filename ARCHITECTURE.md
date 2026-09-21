@@ -192,17 +192,76 @@ only with a provider-confirmed `provider_message_id`. A human can record a manua
 | read_public_post | AVAILABLE | `get_feed_detail` | UNAVAILABLE |
 | read_public_comments | AVAILABLE | `get_feed_detail(load_all_comments)` | UNAVAILABLE |
 | read_public_profile | AVAILABLE | `user_profile` (needs xsec_token) | UNAVAILABLE |
-| publish_content | configurable | `publish_content` (no note id returned) | UNAVAILABLE |
+| publish_content | configurable | `publish_content` (no note id returned); a post with `video` goes through `publish_with_video` (one local file, no images) | UNAVAILABLE |
 | read_engagement | AVAILABLE | `get_my_profile` feeds interactInfo (no views) | UNAVAILABLE |
+| read_notifications | **UNAVAILABLE** (a notification centre exists only for a real account) | `list_notifications` + `get_unread_count` (§7.2) | UNAVAILABLE |
 | reply_comments | configurable | `reply_comment_in_feed` | UNAVAILABLE |
 | receive_messages | configurable (scripted inbox) | **UNAVAILABLE** – no DM inbox tool; official DM access only via 私信通 / approved 三方客服 vendors | UNAVAILABLE |
-| send_messages | configurable (default UNAVAILABLE) | **UNAVAILABLE** – no authorized API for DMs to users | UNAVAILABLE |
+| send_messages | configurable (default UNAVAILABLE) | **UNAVAILABLE** by default – no authorized API for DMs to users; **AVAILABLE** only where `dm_sender` is configured (see below) | UNAVAILABLE |
 
 Additionally `juguang-webhook.ts` parses the official 聚光 "私信API对接" lead push (lead records incl.
 voluntarily provided phone/WeChat) into CRM updates.
 
+### 7.1 Sending a DM at all (`dm_sender`, opt-in)
+
+What the platform offers, checked against the official docs: the **IM / 私信 API is open only to approved third-party
+客服服务商** (qualification review since 2025-02; a brand connects through such a vendor, not with its own code), the
+**聚光 Marketing API** covers ad accounts, delivery, reports, creatives and 客资 collection but has no message
+sending, the **千帆 / 电商 open platform** is shop-scoped, and **pro.xiaohongshu.com** does not share the instance's
+session (it demands its own login). So a store that is not an IM vendor has exactly one channel it can operate
+itself: the account's own logged-in browser session — the same one that already publishes notes and replies to
+comments.
+
+`XHS_DM_SENDER` (+ `XHS_MCP_DATA_DIR`, optional `XHS_DM_SEND_TIMEOUT_MS`) points at the built `tools/xhs-dm-send`
+and turns `McpProviderConfig.dm_sender` on. Then, for an account whose instance is on this host and whose
+`cookies.json` exists, `send_messages` becomes AVAILABLE and `sendMessage` runs the helper: open the recipient's
+profile → open the conversation → type the reviewed text → send → **read the message back in the thread**. Only that
+read-back id makes an outreach `SENT`. The helper also reports the recipient's avatar as their conversation header
+shows it (`peer_avatar=`, accepted only from `*.xhscdn.com`); `sendOutreach` stores it on a lead that had none, which
+is the only way a lead first seen in a DM ever gets a face. A pre-send failure is UNAVAILABLE + retryable (nothing was sent); anything
+after typing is `REQUIRES_REVIEW` carrying `DM_SEND_UNKNOWN_MARK`, never retryable, and the console then hides
+「通过平台发送」 for that outreach — a human checks Xiaohongshu and either registers or cancels it. A DM-like tool on
+the instance still wins over everything (REQUIRES_REVIEW), remote instances and accounts without a local session are
+refused, and each instance's sends are serialized on its own lane. With the flag unset — the default — nothing
+changes: no DM is ever sent by the system.
+
+Whether or not sending is on, each store records **where its own salespeople send DMs by hand**:
+`dealer.settings.dm_channel` — `'app'` (小红书 App / 网页版, the default when the setting is absent) or
+`'pro'` (the 专业号 customer-service workbench, `PRO_WORKBENCH_URL` =
+`https://pro.xiaohongshu.com/im/multiCustomerService`). It is set in 设置 → 运营策略 (`PATCH /api/dealers/:id`
+with `dm_channel`) and only changes the wording of `OutreachQueueItem.manual_send_instructions`, the item's
+`send_channel` / `workbench_url` and the console's copy. Neither value unlocks sending: `SENT` still needs a
+provider-confirmed message id, and Steer never drives either surface.
+
 The simulation provider is clearly labelled `mode: 'simulation'` everywhere it surfaces (UI banner,
 capability report, audit). It is for tests and demos only.
+
+### 7.2 The notification centre (`read_notifications`)
+
+Xiaohongshu tells every account who commented or @-mentioned it (`mentions`), who liked or collected a note (`likes`)
+and who started following (`connections`). This is the store's only inbound path that needs no searching, and the
+provider exposes it as `getUnreadCounts` / `listNotifications` / `replyToNotification` / `likeNotificationComment`
+(all optional on `XhsProvider`; only the live provider implements them).
+
+Facts the code depends on:
+- **`list_notifications` clears that tab's unread badge**, exactly as opening the page in the app does.
+  `get_unread_count` does not, so `syncAccountNotifications` always reads the counts first.
+- The payload's `filtered` counts entries the platform hid (deleted comment, note under review). It is stored and
+  shown: the list is allowed to be shorter than reality, but never silently.
+- Every item carries what the follow-up action needs: `comment_id` (reply / like), `feed_id` + `feed_xsec_token`
+  (open the note), the sender's `xsec_token` (open their profile). There is **no avatar** in this payload.
+- `reply_notification` and `like_notification` confirm by returning the JSON record of what they did, not the word
+  成功 — hence the provider's `write_json` call mode. An error result still throws and stays a failure.
+- A logged-out instance answers `get_unread_count` with `context deadline exceeded`, like every other read (§7).
+- Kinds are derived from the platform's `type` (`comment/item`, `liked/item`, `faved/item`, `follow/you`) with its
+  Chinese wording as the fallback, so an unseen type lands in the right bucket instead of defaulting to a like.
+
+The `notification-inbox` skill stores one `xhs_notifications` row per notification (unique per
+`(account_id, provider_notification_id)`), and comment notifications that are buyer signals become leads through the
+normal pipeline — screened by the same LLM screen as discovery, then `upsertLeadFromSignal`. A like, a collect or a
+follower is **never** a lead by itself (no text = no purchase signal); a human can still promote one by hand, which
+is recorded as a `reply` signal with `data_mode: manual`. The workflow step is `sync_notifications` in
+`reply_processing` (every 30 min); the console shows the three tabs beside 私信 on the 对话 page.
 
 ## 8. Module API contract (signatures other modules rely on)
 
@@ -216,8 +275,8 @@ export function importDealerBrain(ctx, bundle: DealerBrainBundle): ImportSummary
 export function getDealer(ctx, dealerId: string): Dealer
 export function listDealers(ctx, groupId?: string): Dealer[]
 export function getDealerProfile(ctx, dealerId: string): DealerProfile
-export function findVehicles(ctx, groupId: string, q: {brand?: string; model?: string; trim?: string}): Vehicle[]
-export function resolveVehicle(ctx, groupId: string, q: {brand?: string; model?: string; trim?: string}): Vehicle | null
+export function findVehicles(ctx, groupId: string, q: {brand?; model?; trim?; include_archived?: boolean}): Vehicle[]   // archived trims excluded
+export function resolveVehicle(ctx, groupId: string, q: {brand?; model?; trim?; include_archived?: boolean}): Vehicle | null
 export interface InventoryMatch { inventory: Inventory; vehicle: Vehicle }
 export function findInventory(ctx, dealerId: string, q: {model?: string; trim?: string; vehicle_id?: string;
   exterior_color?: string; interior_color?: string; statuses?: InventoryStatus[]}): InventoryMatch[]
@@ -236,6 +295,78 @@ export const skill
 (`35.39万`, `8000元`, `2万`), rates (`3.99%`, `0息`), terms (`36期`), down payments (`首付3成`/`30%`),
 inventory claims (`现车`/`有货`/`库存`), expiry dates, and prohibited phrases; every claim must match a
 declared, currently-valid FactRef belonging to that dealer.
+
+### A1 · `src/skills/operations/vehicle-brain/` (车型库 / Vehicle Brain)
+```ts
+export interface VehicleCard { vehicle: Vehicle; display_name: string; price: {msrp; current: number|null; price_cut: number|null};
+  powertrain_label: string|null; colors: {exterior_color; interior_color; status; quantity; inventory_id}[];
+  in_stock: number; in_transit: number; offers: Offer[]; finance_offers: Offer[]; fact_refs: FactRef[]; archived: boolean }
+export function listVehicleCards(ctx, dealerId, opts?: {include_archived?; brand?; query?}): VehicleCard[]
+export function getVehicleCard(ctx, dealerId, vehicleId): VehicleCard
+export interface VehicleMatch { card: VehicleCard; score: number; matched_on: string[] }
+export function retrieveVehicles(ctx, dealerId, q: {text?; brand?; model?; trim?; limit?; include_archived?}): VehicleMatch[]
+export function matchVehicle(ctx, dealerId, q): VehicleCard | null
+export function vehicleContext(cards, opts?): { text: string; fact_refs: FactRef[]; cards: VehicleCard[] }   // 事实 / 素材 block
+export function vehicleFaqAnswer(card, question: string): { faq: VehicleFaq; score: number } | null
+export function updateVehicle(ctx, vehicleId, patch, actor): Vehicle                 // facts + prose, human-authored
+export function archiveVehicle(ctx, vehicleId, actor): Vehicle                        // and restoreVehicle
+export function parseVehicleRows(text: string): VehicleImportRow[]                    // JSON array or CSV/TSV (zh/en headers)
+export function importVehicles(ctx, dealerId, rows, actor, addVehicle): VehicleImportResult
+// knowledge.ts
+export function generateVehicleKnowledge(ctx, dealerId, vehicleId, actor, opts?): Promise<VehicleKnowledgeResult>
+export function allowedMeasurements(card: VehicleCard): Set<string>
+export function unsupportedMeasurements(text, allowed, modelYear): string[]
+export const skill  // name 'vehicle-brain'
+```
+The card is the store's line-up as it is sold: the `vehicles` row plus that dealer's live `inventory` and the
+`offers` that apply to it. **Facts** (price, 当前售价, specs, colours, stock, finance terms) come only from those rows
+and carry `fact_refs`; **prose** (description, highlights, target customers, competitor notes, FAQ, content angles)
+may be LLM-written and is verified before it is stored.
+
+Retrieval is deterministic and lexical, not vector search: a brand / model / trim from intent detection scores 1
+(`matched_on: 'model:i3'`); free text is scored on the query's **discriminating** character bigrams — those at least
+one card has and not every card has — and a card must contain ≥ `MIN_TEXT_TERM_HITS` (2) of them and
+≥ `MIN_RETRIEVAL_SCORE` (0.5) of them. `matched_on` records why it matched. Archived trims are out of the line-up everywhere:
+retrieval, `findVehicles` / `resolveVehicle`, content material, outreach, answers, lead value and the setup step.
+
+`generateVehicleKnowledge` runs two guards on every generated string and drops what fails (never rewrites it):
+`verifyClaims` (the Dealer Brain verifier) and `unsupportedMeasurements` — every 数字+单位 (万/元/公里/度/马力/秒/座/期/
+成/%/台) must match a value on the card, with 万↔元 and 成↔% resolved, and the model year exempt. `rejected[]` names
+each dropped string and the guard that dropped it. Without an LLM it returns UNAVAILABLE and stores nothing.
+
+Consumers: content (`post-generation` material + angle), outreach (`composeOutreachMessage` vehicle match),
+conversation (`composeReply` FAQ answer when no fact kind covers the question), lead pipeline (lead value).
+
+### A1 · `src/skills/content/account-voice/` (账号语言风格 / Account Voice)
+```ts
+export interface AccountVoiceProfile { account_id; dealer_id; sample_count; sample_note_ids: string[];
+  metrics: VoiceMetrics; rules: {rule; basis}[]; vocabulary: {openers; closers; cta_phrases; tags; phrases; emojis};
+  examples: {platform_note_id; title; excerpt; why}[]; avoid: string[]; engine; analyzed_at; newest_sample_at }
+export function learnAccountVoice(ctx, accountId, actor, {limit?, use_llm?}): Promise<VoiceLearnResult>
+export function refreshDealerVoices(ctx, dealerId, actor, {force?}): Promise<VoiceLearnResult[]>   // stale = older than 7d
+export function collectAccountNotes(ctx, accountId, {limit?})      // own profile list → detail per note
+export function getAccountVoice(ctx, accountId): AccountVoiceProfile | null
+export function voicePromptBlock(profile, {examples?, compact?}): string
+export function voicePronoun(profile) / applyVoicePronoun(text, profile)
+export function voiceCopyCheck(ctx, accountId, text): CopyCheck
+// analyze.ts (pure): measure, vocabulary, deriveRules, pickExamples, checkCopy, usableSamples
+export const skill  // name 'account-voice'
+```
+A persona is what the store decided an account should sound like; a voice profile is what it measurably sounds like,
+learned from that account's own notes. **One profile per account** (UNIQUE on `account_id`), never shared or merged.
+
+Guarantees: notes this system published are excluded (a voice never learns from its own output); every measurement is
+a median or a share and a habit becomes a rule only with support in ≥ `RULE_SUPPORT` (0.4) of the notes, so one odd
+post cannot move a voice; below `MIN_SAMPLES` (3) usable notes nothing is stored and the result says why; every rule
+carries its basis; LLM-added rules must quote a passage that appears verbatim in that account's notes and may not
+contain a price or a spec number; few-shot examples are the notes closest to the account's own median, never the most
+popular. **Imitation is not reuse**: `voiceCopyCheck` refuses generated text at ≥ `COPY_SIMILARITY` (0.55) similarity
+to, or ≥ `COPY_RUN_CHARS` (18) characters of verbatim overlap with, one of that account's own notes — enforced in
+post generation and in DM polishing regardless of what the model was told.
+
+Consumers: `post-generation` (rules + examples in the prompt, copy check on the candidate), `sales/outreach`
+(compact block in the polish, copy check, pronoun), `sales/conversation` (pronoun). Refreshed weekly by the
+`learn_account_voice` step of `refresh_dealer_data`, or from the 账号 card (`POST /api/accounts/:id/voice`).
 
 ### A1 · `src/skills/operations/account-brain/index.ts`
 ```ts
@@ -283,6 +414,8 @@ export class SimulationXhsProvider implements XhsProvider {           // name 's
 export class McpHttpClient { constructor(opts: {url: string; token?: string; fetchImpl?: typeof fetch; timeoutMs?: number}) ... }
 // mcp-provider.ts — maps to xiaohongshu-mcp tools; one endpoint per managed account + a research endpoint
 export class McpXhsProvider implements XhsProvider { constructor(clock: Clock, cfg: McpProviderConfig, fetchImpl?: typeof fetch) }
+//   also implements the optional XhsProvider.getNoteWithComments(ref, opts?, accountId?) → {note, comments}: one
+//   get_feed_detail page load instead of getNote + getComments. lead-discovery uses it when present, else falls back.
 // juguang-webhook.ts
 export function parseJuguangLeadPush(body: unknown): JuguangLead[]
 // index.ts
@@ -335,7 +468,12 @@ export function suppressContact(ctx, input: {platform_user_id: string; reason: s
   { suppression: ContactSuppression; leads_updated: string[]; outreach_cancelled: string[]; conversations_closed: string[] }
 export function recordConversion(ctx, input: {lead_id: string; outcome: 'won'|'lost'; amount?: number; vehicle_id?: string;
   lost_reason?: string; actor: string}): Conversion
-export function computeNextAction(ctx, lead: Lead): string
+export function computeNextAction(ctx, lead: Lead): string   // LOST → '已流失：' + lostReasonText(lost_reason)
+// src/server/pages/decision-view.ts: decisionTitle(type), decisionText(decision) — Chinese one-liner per
+//   agent_decisions row (outreach_guard / lead_score / lead_qualification / lead_dedup_merge / lead_prefilter have
+//   output-built summaries; then reason/summary/headline/message, then evidence; never an id)
+export const LOST_REASON_LABEL: Record<string, string>       // machine codes ('llm_screen', 'industry_account') → Chinese
+export function lostReasonText(reason: string | null): string // the code stays in the column; text a human wrote passes through
 export function refreshNextAction(ctx, leadId: string): Lead
 export function getLeadTimeline(ctx, leadId: string): { transitions: LeadStageTransition[]; events: AuditEvent[]; decisions: AgentDecision[] }
 export const skill
@@ -373,7 +511,19 @@ Authenticity is derived from lead evidence codes written by lead-research: `indu
 ```ts
 export class AnthropicLlmProvider implements LlmProvider { constructor(opts: {apiKey: string; model?: string; baseUrl?: string;
   fetchImpl?: typeof fetch; timeoutMs?: number; maxRetries?: number}) }
+export class OpenRouterLlmProvider implements LlmProvider { constructor(opts: {apiKey: string; model?: string; baseUrl?: string;
+  fetchImpl?: typeof fetch; timeoutMs?: number; maxRetries?: number}) }   // additive: OpenAI-compatible chat completions
 export function createLlmProvider(env: Record<string, string | undefined>): LlmProvider
+// LLM_PROVIDER=openrouter|anthropic|none; unset → OPENROUTER_API_KEY, else ANTHROPIC_API_KEY, else disabled.
+// OpenRouter JSON = strict json_schema + provider.require_parameters; both providers re-validate the ORIGINAL schema.
+// lead-discovery/llm-screen.ts — lead screening (purpose 'lead_screening'): rules nominate candidates, the LLM
+//   classifies each author buyer | owner | dealer | advice | chatter with a verbatim quote (re-anchored; Xiaohongshu
+//   emoji codes may be skipped) and the post / replied-to comment as context. With an LLM, only 'buyer' becomes a lead;
+//   invalid / failed verdicts leave the candidate unscreened (no lead). Buyers outside the goal area
+//   (targetAreaFor: GoalSpec.nationwide → anywhere; else goal place, else store area; stated place > IP province) and
+//   texts older than LEAD_FRESH_DAYS (7) never become leads.
+// lead-discovery/rescreen.ts — rescreenLeads(ctx, {dealer_id, limit?, apply_area?}) → {checked, kept, closed,
+//   closed_by_role, unscreened, failures}: re-screens open pre-LLM leads and closes non-buyers (LOST 'llm_screen').
 ```
 
 ### Foundation helpers (already implemented — import, do not re-implement)
@@ -481,7 +631,11 @@ export interface AnalyticsFilters { dealer_id?: string; account_id?: string; bra
   from?: string; to?: string; source_type?: SignalSourceType; stage?: LeadStage }
 export function resolvePeriod(ctx, f: AnalyticsFilters): { from: string; to: string }   // default: dealer-local today
 export function getDashboard(ctx, f: AnalyticsFilters): DashboardMetrics
-export function getLeadInbox(ctx, f: AnalyticsFilters & {tier?: ScoreTier; limit?: number; offset?: number}): LeadCard[]
+export function getLeadInbox(ctx, f: AnalyticsFilters & {tier?: ScoreTier; open_only?: boolean; limit?: number; offset?: number}): LeadCard[]
+//   LeadCard.avatar_url (leads.avatar_url, migration v5) and assigned_account.avatar_url (the account's own
+//   platform_profile.avatar_url): the console proxies both through /media/xhs-image
+//   open_only hides LOST / WON (ignored when filters.stage is set); LeadCard.source also carries the search that
+//   found the lead: {query_text, search_run_id, workflow_run_id, searched_at}
 export function getLeadDetail(ctx, leadId: string): LeadDetail
 export function getContentAttribution(ctx, f: AnalyticsFilters): ContentAttributionRow[]
 export function getFunnel(ctx, f: AnalyticsFilters): { stage: LeadStage; count: number; conversion_from_prev: number }[]
@@ -494,8 +648,19 @@ export function assignLead(ctx, leadId: string, opts?: {reassign_to?: string; ac
   { assignment: LeadAssignment | null; candidates: AssignmentCandidate[]; changed: boolean; reason: string }
 export function getActiveAssignment(ctx, leadId: string): LeadAssignment | undefined
 export function releaseAssignment(ctx, leadId: string, reason: string, actor: string): void
+export function releaseAccountLeads(ctx, accountId: string, reason: string, actor: string):   // inside ctx.db.tx
+  { leads: string[]; outreach_cancelled: string[] }
+export const GONE_ACCOUNT_REASON: string
 export const skill
 ```
+**A lead belongs to the store, never to an account.** The assignment is only who works it now: when the owning account
+leaves the fleet (row deleted, or archived with `removed_at`), `removeAccount` calls `releaseAccountLeads` and every
+lead goes back to the dealer's pool with its score, stage, signals, evidence and history untouched — nothing about a
+lead is stored on the account. `assignLead` then treats a departed account as gone: an active assignment of one is
+released and re-ranked, and a **sticky** account that left no longer blocks the lead (a sticky account that merely
+became unavailable still asks for a human, unchanged). The hourly `assign_leads` step scans every stage in
+`ASSIGNABLE_STAGES` (QUALIFIED … NEGOTIATING, never WON / LOST) without an active assignment, so an orphaned lead is
+re-owned on the next run instead of waiting for a new signal.
 Routing: rank the accounts of `lead.dealer_id` (section 5.3). Only when that dealer has no eligible account are other
 group dealers' accounts ranked (with location points 0). Only leads with `score ≥ qualified`, not suppressed, not LOST/WON
 are assigned; everything else returns `assignment:null` with a reason.
@@ -593,7 +758,8 @@ export async function runOptimization(ctx, dealerId: string): Promise<Record<str
   `dashboard|inbox|funnel|attribution|accounts|lead_detail` · the plain functions are read-only.
 - **B5 account-assignment:** `classifyLeadIntent`, `assignmentConfidence(candidates, chosenAccountId?)`, `summarizeFactors` ·
   industry / dealer-sales leads below CONTACTED are never assigned; CONTACTED-or-deeper leads are exempt from the score guard ·
-  a new owner cancels every other account's undelivered outreach for the lead.
+  a new owner cancels every other account's undelivered outreach for the lead · `releaseAccountLeads` frees a departing
+  account's leads (event `lead.assignment_released`, reason `GONE_ACCOUNT_REASON`); leads are never deleted with an account.
 - **Gates:** `test/integration/contracts-wave-b.test.ts` (compile-time + runtime §8 B checks) and
   `test/integration/acquisition-core.test.ts` (the real acquisition chain over the simulation corpus).
 
@@ -636,6 +802,10 @@ export async function runOptimization(ctx, dealerId: string): Promise<Record<str
   `is_purchase_signal` → BUYER · prefilter passed, automotive, not negative → ENTHUSIAST · else UNKNOWN.
 - Persisted on `lead_signals.actor_type` and `leads.actor_type` (BUYER once any buyer signal exists; lead-research
   `industry_account` → DEALER_OR_SALES). Only BUYER signals create leads (unchanged `is_purchase_signal` rule).
+- Dealer store / sales accounts are recognised by naming convention, never by brand (`DEALER_ACCOUNT_NAME_RE` in the
+  automotive lexicon: `…销售服务中心`, `…汽车…店`, `<品牌>汽车 | 小李`, `福利官`, `销冠`), by store phrasing and contact
+  homophones (`品鉴`, `展车到店`, `厚台`/`🐍信`) and by stacked promotion terms (≥ 3, or 2 without a question). Calibrated
+  on the first live capture (`test/unit/nlu/fixtures/xhs-live-dealer-posts.json`, 19 of 23 texts from sellers).
 
 ### 10.3 One Xiaohongshu session per managed account
 - Endpoint per account: env `XHS_MCP_ACCOUNTS` (wins) or `xhs_accounts.mcp_endpoint_url` (unique). Bearer tokens only via env.
@@ -643,6 +813,43 @@ export async function runOptimization(ctx, dealerId: string): Promise<Record<str
   refreshed from live capability probes, never assumed.
 - Optional provider auth API `XhsProvider.auth` (live provider only): `status(accountId|null)`,
   `loginQrcode(accountId|null) → {already_logged_in, image_data_url, expires_at}` for in-console QR login.
+- Login window (additive): Xiaohongshu rejects QR logins scanned from the instance's headless browser. With
+  `XHS_LOGIN_HELPER` + `XHS_MCP_DATA_DIR` configured, `auth.visibleLogin.start(accountId|null)` / `.status(…)` →
+  `XhsVisibleLoginJob {state: running|succeeded|failed, instance, started_at, finished_at, expires_at, detail}` runs
+  `tools/xhs-visible-login` for a **loopback** instance only, writing `<XHS_MCP_DATA_DIR>/<instance>/cookies.json`
+  (instance = `research` or the platform account id; the running instance reads it on its next call). Skill:
+  `startLoginWindow(ctx, accountId|null, actor)` (audit `account.login_window_opened`) / `loginWindowStatus(ctx, …)`;
+  API `POST /api/accounts/:id/login-window[/status]`, `POST /api/research-session/login-window[/status]`. Remote
+  instances: `scripts/xhs-mcp-fleet.sh login <instance>` on their own host.
+- Removing an account (migration v6, additive): `removeAccount` always succeeds. It first releases every lead the
+  account owns (`releaseAccountLeads`) and cancels that account's undelivered drafts. An account that never contacted a
+  customer and published nothing is then deleted outright; one that did (sent DM, conversation, appointment, post,
+  comment reply) is **archived**: `removed_at` is set, `status` becomes `disabled` (so it is ineligible everywhere),
+  `platform_account_id` / `mcp_endpoint_url` / `platform_user_id` / `platform_profile` / auth fields are cleared so the
+  same Xiaohongshu account can be added again, and the row stays only so its history keeps an author. Fleet listings
+  (`getAccountSessions`, `listFleet`, `accountsInScope`, `getAccountsOverview`, the console's account pickers) exclude
+  `removed_at IS NOT NULL`; name lookups for history do not. Audit: `account.deleted` / `account.archived` with
+  `leads_released`.
+- Adding an account (additive): where the console's own host runs the instances (`XHS_MCP_BIN` + `XHS_MCP_DATA_DIR` +
+  `XHS_MCP_TOKEN`, loopback), `auth.localInstance.start(accountId, {reserved_ports?, known_port?})` →
+  `XhsLocalInstance {instance, url, port, pid, started, detail}` starts that account's own instance in the fleet-script
+  layout (`<XHS_MCP_DATA_DIR>/<instance>/{cookies.json,server.log,pid,port}`, first free port above
+  `XHS_MCP_BASE_PORT`, `AUTH_TOKEN` = `XHS_MCP_TOKEN`, detached, reported only after its `/health` answered). Skill
+  `startAccountInstance(ctx, accountId, actor)` binds it with `setAccountEndpoint` (audit `account.instance_started`);
+  API `POST /api/accounts/:id/instance`; console 账号 → 启动本机实例. One process per cookies file: a healthy instance
+  is reused (`started: false`), a live but silent one is reported, env-pinned accounts are refused. The instance starts
+  logged out — `auth_state` stays `unknown` until a probe runs. Hosts that run instances elsewhere (systemd slots,
+  Docker, another machine) leave `XHS_MCP_BIN` unset and keep using `scripts/xhs-mcp-fleet.sh` + the endpoint field.
+- Account profile (migration v4, additive): `auth.status` also returns `profile: XhsOwnProfile | null` parsed from the
+  same `get_my_profile` call (`profileFromMyProfile`: nickname, red_id, avatar_url, bio, ip_location, follows, fans,
+  liked_and_collected, own notes with cover / likes; counts the web leaves empty are null, never 0).
+  `syncAccountAuth` stores it on `xhs_accounts.platform_profile` (JSON) + `platform_profile_at` only when the account's own
+  session is confirmed (never on a wrong-account or bound-elsewhere login). The console renders images through
+  `GET /media/xhs-image?src=` (session required; `*.xhscdn.com` only, https, no redirects, image types, ≤ 2 MB) because
+  the console CSP allows same-origin images only; signed cover URLs expire and are refreshed by the next login check.
+- One call at a time per instance: the live provider queues `tools/call` per instance URL; concurrent `auth.status`
+  probes of one instance share one probe; while a QR / window login is pending, a logged-out status skips
+  `get_my_profile` (it hangs 60 s when logged out).
 
 ### 10.4 Human send accountability
 - `outreach.sent_by` / `conversation_messages.sent_by` record the operator who sent a message by hand (`SENT_MANUALLY`,

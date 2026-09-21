@@ -184,7 +184,8 @@ describe('automotive lexicon: competitors & display names', () => {
     assert.equal(modelDisplayName('Tesla', 'Model 3'), '特斯拉Model 3');
     assert.equal(modelDisplayName('Mercedes-Benz', 'C-Class'), '奔驰C级');
     assert.equal(modelDisplayName('BMW', 'i5'), '宝马i5', 'unknown model keeps the given name');
-    assert.equal(modelDisplayName('', 'X9'), 'X9');
+    assert.equal(modelDisplayName('XPeng', 'X9'), '小鹏X9');
+    assert.equal(modelDisplayName('', 'ZZ9'), 'ZZ9', 'a model nobody knows, with no brand, is returned as typed');
   });
 });
 

@@ -15,6 +15,7 @@ import {
 } from '../../core/types.ts';
 import { v } from '../../core/validate.ts';
 import { assignLead } from '../../skills/acquisition/account-assignment/index.ts';
+import { rescreenLeads } from '../../skills/acquisition/lead-discovery/rescreen.ts';
 import { researchLead } from '../../skills/acquisition/lead-research/index.ts';
 import { getScoringConfig, updateScoringConfig } from '../../skills/acquisition/lead-scoring/index.ts';
 import {
@@ -42,6 +43,8 @@ export interface InboxQuery {
   q?: string;
   data_mode?: (typeof DATA_MODES)[number];
   actor_type?: (typeof ACTOR_TYPES)[number];
+  /** hide closed leads (LOST / WON) unless a stage was asked for explicitly; default true */
+  open_only?: boolean;
   limit: number;
   offset: number;
 }
@@ -61,11 +64,11 @@ export function leadInbox(ctx: AppContext, q: InboxQuery): LeadCardView[] {
   const analyticsOnly = Boolean(f.account_id || f.brand || f.model || f.location || f.source_type || f.from || f.to);
   const extras = Boolean(q.q || q.data_mode || q.actor_type);
   if (!extras) {
-    return getLeadInbox(ctx, { ...f, dealer_id: q.dealer_id, tier: q.tier, limit: q.limit, offset: q.offset }).map((c) => view(ctx, c));
+    return getLeadInbox(ctx, { ...f, dealer_id: q.dealer_id, tier: q.tier, open_only: q.open_only !== false, limit: q.limit, offset: q.offset }).map((c) => view(ctx, c));
   }
   if (analyticsOnly) {
     const needle = q.q?.toLowerCase();
-    return getLeadInbox(ctx, { ...f, dealer_id: q.dealer_id, tier: q.tier, limit: 500, offset: 0 })
+    return getLeadInbox(ctx, { ...f, dealer_id: q.dealer_id, tier: q.tier, open_only: q.open_only !== false, limit: 500, offset: 0 })
       .map((c) => view(ctx, c))
       .filter((c) => (!q.data_mode || c.data_mode === q.data_mode) && (!q.actor_type || c.actor_type === q.actor_type))
       .filter((c) => !needle || `${c.username} ${c.original_signal} ${c.model_label} ${c.location_label}`.toLowerCase().includes(needle))
@@ -84,6 +87,10 @@ export function leadInbox(ctx: AppContext, q: InboxQuery): LeadCardView[] {
   if (f.stage) {
     where.push('stage = ?');
     params.push(f.stage);
+  } else if (q.open_only !== false) {
+    // closed leads (e.g. the ones the LLM screen rejected) stay in the database and in the funnel stats, but the
+    // inbox is the work list: they are shown only when asked for (?closed=1 or a stage filter).
+    where.push("stage NOT IN ('LOST', 'WON')");
   }
   if (q.tier) {
     where.push('tier = ?');
@@ -119,12 +126,18 @@ export function inboxQueryFrom(rc: RequestContext, dealerId: string): InboxQuery
     q: queryString(rc.query, 'q', 100),
     data_mode: queryEnum(rc.query, 'data_mode', DATA_MODES),
     actor_type: queryEnum(rc.query, 'actor_type', ACTOR_TYPES),
+    open_only: queryString(rc.query, 'closed') !== '1',
     limit,
     offset,
   };
 }
 
 const reasonBody = v.object({ reason: v.string({ min: 1, max: 300 }) });
+const rescreenBody = v.object({
+  dealer_id: v.string({ min: 1 }),
+  limit: v.optional(v.number({ int: true, min: 1, max: 1000 })),
+  apply_area: v.optional(v.boolean()),
+});
 const assignBody = v.object({ reassign_to: v.optional(v.string({ min: 1, max: 80 })), reason: v.optional(v.string({ max: 300 })) });
 const reopenBody = v.object({ to: v.literal(['CANDIDATE', 'QUALIFIED'] as const), reason: v.string({ min: 1, max: 300 }) });
 const stageBody = v.object({ to: v.literal(LEAD_STAGES), reason: v.string({ min: 1, max: 300 }) });
@@ -152,6 +165,12 @@ export function registerLeadRoutes(router: Router, runtime: ServerRuntime): void
     const input = await readBody(rc, assignBody);
     const result = assignLead(ctx, rc.params.id, { reassign_to: input.reassign_to, reason: input.reason, actor: rc.actor });
     return json(result);
+  });
+
+  // maintenance: re-check open leads made before the LLM screen (closes owners / dealers / chatter, never deletes)
+  router.post('/api/leads/rescreen', async (rc) => {
+    const input = await readBody(rc, rescreenBody);
+    return json(await rescreenLeads(ctx, input), 200);
   });
 
   router.post('/api/leads/:id/research', async (rc) => {

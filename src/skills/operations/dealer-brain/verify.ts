@@ -516,7 +516,8 @@ function refSupports(res: ResolvedRef, claim: ExtractedClaim, tz: string): boole
     case 'money':
       switch (claim.role) {
         case 'price':
-          return moneyEquals(res.vehicle?.msrp, claim) || moneyEquals(res.inventory?.list_price, claim);
+          // 指导价, the price the store is actually asking today (车型库 current_price), or this car's own list price.
+          return moneyEquals(res.vehicle?.msrp, claim) || moneyEquals(res.vehicle?.current_price, claim) || moneyEquals(res.inventory?.list_price, claim);
         case 'discount':
           return (res.offer !== undefined && res.offer.type !== 'lease' && moneyEquals(res.offer.amount, claim)) || textual;
         case 'monthly':
@@ -525,6 +526,7 @@ function refSupports(res: ResolvedRef, claim: ExtractedClaim, tz: string): boole
           return (
             blobHas ||
             moneyEquals(res.vehicle?.msrp, claim) ||
+            moneyEquals(res.vehicle?.current_price, claim) ||
             moneyEquals(res.inventory?.list_price, claim) ||
             moneyEquals(res.offer?.amount, claim)
           );

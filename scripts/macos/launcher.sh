@@ -88,19 +88,33 @@ trap 'exit 0' TERM INT
 # ── research xiaohongshu-mcp instance (local, optional) ──────────────────────
 if [ "${XHS_PROVIDER:-}" = "mcp" ]; then
   if [ -z "${XHS_MCP_TOKEN:-}" ] && [ -r "$XHS_MCP_DATA/token" ]; then export XHS_MCP_TOKEN="$(tr -d '[:space:]' < "$XHS_MCP_DATA/token")"; fi
+  # Login window (Xiaohongshu rejects QR logins scanned from the headless instance): use the helper once it is built
+  # (XHS_MCP_SRC=… XHS_MCP_DATA_DIR="$XHS_MCP_DATA" scripts/xhs-mcp-fleet.sh build-login-helper).
+  if [ -z "${XHS_LOGIN_HELPER:-}" ]; then
+    for c in "$XHS_MCP_DATA/.bin/xhs-visible-login" "$HOME/xhs-mcp-src/bin/xhs-visible-login"; do
+      [ -x "$c" ] && export XHS_LOGIN_HELPER="$c" && break
+    done
+  fi
+  # The console starts each account's own instance itself when it can see the binary, the state dir and the token
+  # (账号 → 启动本机实例); without them a new account's instance has to be started with scripts/xhs-mcp-fleet.sh.
+  if [ -z "${XHS_MCP_BIN:-}" ]; then
+    for c in "$HOME/xhs-mcp-src/bin/xiaohongshu-mcp" /opt/xhs/xiaohongshu-mcp; do
+      [ -x "$c" ] && export XHS_MCP_BIN="$c" && break
+    done
+  fi
+  if [ -n "${XHS_MCP_BIN:-}" ] && [ ! -x "${XHS_MCP_BIN:-}" ]; then unset XHS_MCP_BIN; fi
+  if [ -n "${XHS_LOGIN_HELPER:-}${XHS_MCP_BIN:-}" ] && [ -z "${XHS_MCP_DATA_DIR:-}" ]; then export XHS_MCP_DATA_DIR="$XHS_MCP_DATA"; fi
+  if [ -n "${XHS_MCP_BIN:-}" ] && [ -z "${XHS_MCP_TOKEN:-}" ]; then
+    mkdir -p "$XHS_MCP_DATA" && chmod 700 "$XHS_MCP_DATA"
+    (umask 077; [ -f "$XHS_MCP_DATA/token" ] || openssl rand -hex 24 > "$XHS_MCP_DATA/token")
+    export XHS_MCP_TOKEN="$(tr -d '[:space:]' < "$XHS_MCP_DATA/token")"
+  fi
   case "${XHS_MCP_RESEARCH_URL:-}" in
     http://127.0.0.1:*|http://localhost:*)
       RPORT="$(printf '%s' "$XHS_MCP_RESEARCH_URL" | sed -E 's#^http://[^:]+:([0-9]+).*#\1#')"
-      MCP_BIN=""
-      for c in "${XHS_MCP_BIN:-}" "$HOME/xhs-mcp-src/bin/xiaohongshu-mcp" /opt/xhs/xiaohongshu-mcp; do
-        [ -n "$c" ] && [ -x "$c" ] && MCP_BIN="$c" && break
-      done
+      MCP_BIN="${XHS_MCP_BIN:-}"
       if [ -n "$MCP_BIN" ] && ! port_open "$RPORT"; then
         mkdir -p "$XHS_MCP_DATA/research" && chmod 700 "$XHS_MCP_DATA"
-        if [ -z "${XHS_MCP_TOKEN:-}" ]; then
-          (umask 077; [ -f "$XHS_MCP_DATA/token" ] || openssl rand -hex 24 > "$XHS_MCP_DATA/token")
-          export XHS_MCP_TOKEN="$(tr -d '[:space:]' < "$XHS_MCP_DATA/token")"
-        fi
         cd "$XHS_MCP_DATA/research" || exit 1
         env -u XHS_PROXY -u XHS_FP_SEED COOKIES_PATH="$PWD/cookies.json" AUTH_TOKEN="$XHS_MCP_TOKEN" \
           nohup "$MCP_BIN" -port "127.0.0.1:$RPORT" -headless=true >> "$PWD/server.log" 2>&1 &

@@ -18,11 +18,16 @@ import { v } from '../../core/validate.ts';
 import { getSetupStatus, requireReadyToRun } from '../../operator/onboarding.ts';
 import { parseJuguangLeadPush } from '../../providers/xhs/index.ts';
 import { getActiveAssignment } from '../../skills/acquisition/account-assignment/index.ts';
+import { getAccountVoice, learnAccountVoice } from '../../skills/content/account-voice/index.ts';
 import { updatePersona } from '../../skills/operations/account-brain/index.ts';
 import {
   getAccountSessions,
+  loginWindowStatus,
   setAccountEndpoint,
+  logoutAccount,
   startAccountLogin,
+  startAccountInstance,
+  startLoginWindow,
   syncAccountAuth,
   syncFleetAuth,
 } from '../../skills/operations/account-sessions/index.ts';
@@ -45,6 +50,7 @@ import {
   sendOutreach,
 } from '../../skills/sales/outreach/index.ts';
 import { safeEqual } from '../auth.ts';
+import { humanProblem, scrubInternals } from '../humanize.ts';
 import { queryString, type Router } from '../http.ts';
 import type { ServerOptions, ServerRuntime } from '../runtime.ts';
 import { dealerFromQuery, json, paging, readBody, requireDealer, requireRow } from './common.ts';
@@ -76,7 +82,7 @@ const approveBody = v.object({ message: v.optional(v.string({ min: 1, max: 1000 
 const reasonBody = v.object({ reason: v.string({ min: 1, max: 300 }) });
 const inboundBody = v.object({
   account_id: v.string({ min: 1 }),
-  platform_user_id: v.string({ min: 1, max: 200 }),
+  platform_user_id: v.string({ min: 1, max: 300 }),
   username: v.optional(v.nullable(v.string({ max: 200 }))),
   content: v.string({ min: 1, max: 5000 }),
   received_at: v.optional(v.string({ min: 10, max: 40 })),
@@ -84,6 +90,18 @@ const inboundBody = v.object({
 const leadInboundBody = v.object({ content: v.string({ min: 1, max: 5000 }), received_at: v.optional(v.string({ min: 10, max: 40 })) });
 const replyApproveBody = v.object({ text: v.optional(v.string({ min: 1, max: 1000 })) });
 const dealerBody = v.object({ dealer_id: v.string({ min: 1 }) });
+
+/**
+ * Nobody in a store knows what a Xiaohongshu user id is, so the console asks for the profile link they can copy from
+ * the app. A pasted link is reduced to the id it ends with; anything else is passed through as typed.
+ */
+export function userIdFromProfileLink(raw: string): string {
+  const text = raw.trim();
+  if (!text.includes('/')) return text;
+  const path = text.split('?')[0]!.split('#')[0]!;
+  const last = path.split('/').filter(Boolean).pop() ?? '';
+  return /^[A-Za-z0-9_-]{4,64}$/.test(last) ? last : text;
+}
 
 const account = (runtime: ServerRuntime, id: string): XhsAccount => requireRow(runtime.ctx.db.table('xhs_accounts').get(id), 'xhs_account', id);
 
@@ -126,9 +144,21 @@ export function registerSalesRoutes(router: Router, runtime: ServerRuntime, opti
     });
   });
 
+  // A login check drives a browser on the account's instance: concurrent checks of one account (console polling,
+  // double clicks) share the one in flight instead of queueing more browsers.
+  const syncInFlight = new Map<string, ReturnType<typeof syncAccountAuth>>();
+  const syncOnce = (accountId: string) => {
+    let p = syncInFlight.get(accountId);
+    if (!p) {
+      p = syncAccountAuth(ctx, accountId).finally(() => syncInFlight.delete(accountId));
+      syncInFlight.set(accountId, p);
+    }
+    return p;
+  };
+
   router.post('/api/accounts/:id/sync', async (rc) => {
     account(runtime, rc.params.id);
-    const r = await syncAccountAuth(ctx, rc.params.id);
+    const r = await syncOnce(rc.params.id);
     ensureSchedulesWhenReady(r.account.dealer_id);
     return json({ account_id: r.account.id, auth_state: r.account.auth_state, status: r.status, reason: r.reason, applicable: r.applicable, capabilities: r.capabilities });
   });
@@ -147,11 +177,55 @@ export function registerSalesRoutes(router: Router, runtime: ServerRuntime, opti
 
   router.post('/api/research-session/login', async (rc) => json(loginReply(await startAccountLogin(ctx, null, rc.actor))));
 
+  /** 账号语言风格: read this account's own notes and (re)build its writing profile. */
+  router.post('/api/accounts/:id/voice', async (rc) => {
+    account(runtime, rc.params.id);
+    const result = await learnAccountVoice(ctx, rc.params.id, rc.actor, { limit: 20 });
+    return json({
+      ...result,
+      detail:
+        result.status === 'AVAILABLE'
+          ? `看完了 ${result.used} 篇笔记，总结出 ${result.profile?.rules.length ?? 0} 条它自己的写法`
+          : (humanProblem(result.reason) ?? scrubInternals(result.reason) ?? '这次没读成，稍后再试'),
+    });
+  });
+
+  router.get('/api/accounts/:id/voice', (rc) => {
+    account(runtime, rc.params.id);
+    return json({ profile: getAccountVoice(ctx, rc.params.id) });
+  });
+
+  router.post('/api/accounts/:id/logout', async (rc) => {
+    account(runtime, rc.params.id);
+    const { account: row, detail } = await logoutAccount(ctx, rc.params.id, rc.actor);
+    // What the session teardown said is infrastructure; the store only needs to know it has to scan again.
+    return json({ account: row, detail: humanProblem(detail) ?? '这个号已经退出登录，要用它就得重新扫码' });
+  });
+
+  // Login window: a visible browser on this host (Xiaohongshu rejects QR logins scanned from the headless instance).
+  router.post('/api/accounts/:id/login-window', async (rc) => {
+    account(runtime, rc.params.id);
+    return json({ job: await startLoginWindow(ctx, rc.params.id, rc.actor) }, 202);
+  });
+  router.post('/api/accounts/:id/login-window/status', async (rc) => {
+    account(runtime, rc.params.id);
+    return json({ job: loginWindowStatus(ctx, rc.params.id) });
+  });
+  router.post('/api/research-session/login-window', async (rc) => json({ job: await startLoginWindow(ctx, null, rc.actor) }, 202));
+  router.post('/api/research-session/login-window/status', async () => json({ job: loginWindowStatus(ctx, null) }));
+
   router.post('/api/research-session/status', async () => {
     if (!ctx.xhs.auth) return json({ applicable: false, reason: `${ctx.xhs.name} 不需要扫码登录` });
     const res = await ctx.xhs.auth.status(null);
     if (!res.ok) return json({ applicable: true, logged_in: false, status: res.status, reason: res.reason });
     return json({ applicable: true, logged_in: res.data.logged_in, username: res.data.username, detail: res.data.detail, auth_state: res.data.logged_in ? 'authenticated' : 'requires_auth' });
+  });
+
+  // Start this account's own instance on this host (only where the console runs the instances itself).
+  router.post('/api/accounts/:id/instance', async (rc) => {
+    account(runtime, rc.params.id);
+    const { account: bound, instance } = await startAccountInstance(ctx, rc.params.id, rc.actor);
+    return json({ account_id: bound.id, endpoint_url: bound.mcp_endpoint_url, instance: instance.instance, port: instance.port, started: instance.started, detail: instance.detail });
   });
 
   router.put('/api/accounts/:id/endpoint', async (rc) => {
@@ -258,7 +332,8 @@ export function registerSalesRoutes(router: Router, runtime: ServerRuntime, opti
   router.post('/api/conversations/inbound', async (rc) => {
     const input = await readBody(rc, inboundBody);
     account(runtime, input.account_id);
-    return json(await processInboundMessage(ctx, { ...input, source: 'manual', actor: rc.actor }), 201);
+    const platform_user_id = userIdFromProfileLink(input.platform_user_id);
+    return json(await processInboundMessage(ctx, { ...input, platform_user_id, source: 'manual', actor: rc.actor }), 201);
   });
 
   router.post('/api/leads/:id/inbound', async (rc) => {

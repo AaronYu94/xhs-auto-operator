@@ -1,5 +1,7 @@
+import { resolve as resolvePath } from 'node:path';
 import type { Clock } from '../../core/clock.ts';
 import { ValidationError } from '../../core/errors.ts';
+import { DEFAULT_INSTANCE_BIND } from './local-instance.ts';
 import { McpXhsProvider, type McpEndpointConfig, type McpProviderConfig } from './mcp-provider.ts';
 import { DEFAULT_SIMULATION_CORPUS_PATH, SimulationXhsProvider, type SimulationOptions } from './simulation.ts';
 import type { XhsProvider } from './types.ts';
@@ -51,20 +53,31 @@ export {
   classifyToolText,
   epochToIso,
   identityFromMyProfile,
+  isLoopbackUrl,
   mapComment,
   mapFeed,
   mapNoteDetail,
   normalizeEndpointUrl,
   parseLoginStatusText,
   parseToolJson,
+  profileFromMyProfile,
   toCount,
   xhsNoteUrl,
   xhsProfileUrl,
   type McpEndpointConfig,
   type McpProviderConfig,
   type McpProviderOptions,
+  type McpVisibleLoginConfig,
   type ToolTextVerdict,
 } from './mcp-provider.ts';
+export {
+  DEFAULT_VISIBLE_LOGIN_TIMEOUT_MS,
+  parseHelperOutput,
+  runVisibleLoginHelper,
+  type VisibleLoginOutcome,
+  type VisibleLoginRequest,
+  type VisibleLoginRunner,
+} from './visible-login.ts';
 export {
   juguangTimeToIso,
   noteIdFromUrl,
@@ -196,6 +209,56 @@ export function xhsProviderConfigFromEnv(env: Env): XhsProviderConfig {
     }
     const dm = envBool(env, 'XHS_MCP_ENABLE_DM_TOOLS');
     if (dm !== undefined) mcp.enable_dm_tools = dm;
+    // Visible-browser login (Xiaohongshu rejects QR logins scanned from the headless instance): both or neither.
+    const helper = env.XHS_LOGIN_HELPER?.trim();
+    const dataDir = env.XHS_MCP_DATA_DIR?.trim();
+    // This host runs the instances itself: the console may start an account's own instance (XHS_MCP_BIN).
+    const binary = env.XHS_MCP_BIN?.trim();
+    // Opt-in DM sending through the account's own session (tools/xhs-dm-send). Off unless a deployment sets it.
+    const sender = env.XHS_DM_SENDER?.trim();
+    if (helper && !dataDir) throw new ValidationError('XHS_MCP_DATA_DIR', 'required with XHS_LOGIN_HELPER: the instances’ state dir (<dir>/<instance>/cookies.json)');
+    if (binary && !dataDir) throw new ValidationError('XHS_MCP_DATA_DIR', 'required with XHS_MCP_BIN: the instances’ state dir (<dir>/<instance>/{cookies.json,pid,port})');
+    if (sender && !dataDir) throw new ValidationError('XHS_MCP_DATA_DIR', 'required with XHS_DM_SENDER: the session a DM is sent from is <dir>/<instance>/cookies.json');
+    if (dataDir && !helper && !binary && !sender)
+      throw new ValidationError('XHS_LOGIN_HELPER', 'required with XHS_MCP_DATA_DIR: path of the built tools/xhs-visible-login binary (or set XHS_MCP_BIN to start instances from the console)');
+    if (helper && dataDir) mcp.visible_login = { helper_path: resolvePath(helper), data_dir: resolvePath(dataDir) };
+    if (binary && dataDir) {
+      if (!token) {
+        throw new ValidationError(
+          'XHS_MCP_TOKEN',
+          'required with XHS_MCP_BIN: an instance holds a live Xiaohongshu session and is only ever started with an AUTH_TOKEN this process also uses',
+        );
+      }
+      const bind = env.XHS_MCP_BIND?.trim() || DEFAULT_INSTANCE_BIND;
+      const base = env.XHS_MCP_BASE_PORT?.trim();
+      let basePort: number | undefined;
+      if (base) {
+        const n = Number(base);
+        if (!Number.isInteger(n) || n < 1 || n > 65_535) throw new ValidationError('XHS_MCP_BASE_PORT', 'expected a port number (the research instance’s port; accounts take the ports above it)');
+        basePort = n;
+      }
+      mcp.local_instances = {
+        binary_path: resolvePath(binary),
+        data_dir: resolvePath(dataDir),
+        bind,
+        ...(basePort === undefined ? {} : { base_port: basePort }),
+        token,
+      };
+    }
+    if (sender && dataDir) {
+      const ms = env.XHS_DM_SEND_TIMEOUT_MS?.trim();
+      let timeoutMs: number | undefined;
+      if (ms) {
+        const n = Number(ms);
+        if (!Number.isInteger(n) || n <= 0) throw new ValidationError('XHS_DM_SEND_TIMEOUT_MS', 'expected a positive integer (ms)');
+        timeoutMs = n;
+      }
+      mcp.dm_sender = {
+        helper_path: resolvePath(sender),
+        data_dir: resolvePath(dataDir),
+        ...(timeoutMs === undefined ? {} : { timeout_ms: timeoutMs }),
+      };
+    }
     // No env endpoints is valid (v3): account endpoints may come from xhs_accounts.mcp_endpoint_url through the
     // bootstrap's resolveEndpoint. Missing endpoints are reported per capability (UNAVAILABLE with the reason), never mocked.
     return { kind: 'mcp', mcp };

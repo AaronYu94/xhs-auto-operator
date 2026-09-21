@@ -13,7 +13,7 @@ import { normalizeText } from '../../../core/text.ts';
 import { DAY_MS, DEFAULT_TZ } from '../../../core/time.ts';
 import type { CapabilityStatus, Evidence, Lead, LeadStage } from '../../../core/types.ts';
 import { v } from '../../../core/validate.ts';
-import { findBrands, provinceOfIp } from '../../../domain/automotive-lexicon.ts';
+import { DEALER_ACCOUNT_NAME_RE, findBrands, provinceOfIp } from '../../../domain/automotive-lexicon.ts';
 import { buildDealerProfile } from '../../../domain/dealer-profile.ts';
 import type { XhsUserProfile } from '../../../providers/xhs/types.ts';
 import { STAGE_INDEX, isSuppressed, refreshNextAction, transitionLead } from '../../operations/crm/index.ts';
@@ -137,6 +137,13 @@ export function detectIndustryAccount(profile: { nickname?: string | null; bio?:
       if (!keywords.includes(keyword)) keywords.push(keyword);
       if (!evidence) evidence = { code: 'industry_account', label: INDUSTRY_EVIDENCE_LABEL, quote: hit };
     }
+  }
+  // Store / staff account names ('…销售服务中心', '<品牌>汽车 | 小李'): the naming convention itself identifies the account.
+  const nickname = typeof profile.nickname === 'string' ? profile.nickname.trim() : '';
+  const nameHit = nickname ? DEALER_ACCOUNT_NAME_RE.exec(normalizeText(nickname)) : null;
+  if (nameHit) {
+    keywords.push(`账号名「${nickname}」`);
+    if (!evidence) evidence = { code: 'industry_account', label: INDUSTRY_EVIDENCE_LABEL, quote: nickname };
   }
   return { industry: keywords.length > 0, keywords, evidence };
 }
@@ -343,6 +350,9 @@ export async function researchLead(ctx: AppContext, leadId: string): Promise<Lea
     if (industry.industry && lead.actor_type !== 'DEALER_OR_SALES') patch.actor_type = 'DEALER_OR_SALES';
     const profileUrl = profile.profile_url?.trim();
     if (!lead.profile_url && profileUrl) patch.profile_url = profileUrl;
+    // the profile is the best source of a face: comments never carry one
+    const avatar = profile.avatar_url?.trim();
+    if (avatar && avatar !== lead.avatar_url) patch.avatar_url = avatar;
     if (Object.keys(patch).length === 0) return;
     ctx.db.table('leads').update(lead.id, patch);
     ctx.audit.event({

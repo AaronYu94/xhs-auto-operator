@@ -241,6 +241,19 @@ export interface ComposeInputs {
   offers: Offer[];
   campaigns: DealerKnowledge[];
   faqs: DealerKnowledge[];
+  /**
+   * 车型库 material for the lead trim: what it is, what it is good at, who it is for and which angles it supports.
+   * This is **not** facts — no number may be taken from it — but it is what makes a note read like the店 knows the car.
+   */
+  material: VehicleMaterial;
+}
+
+export interface VehicleMaterial {
+  description: string;
+  highlights: string[];
+  target_customers: string[];
+  content_angles: string[];
+  competitors: string[];
 }
 
 export interface ComposedDraft {
@@ -346,13 +359,14 @@ export function gatherInputs(ctx: AppContext, post: Post): ComposeInputs {
 
   const offers = post.model ? getActiveOffers(ctx, dealer.id, { model: post.model }) : getActiveOffers(ctx, dealer.id).filter((o) => !o.vehicle_id && !o.model);
   const knowledge = getKnowledge(ctx, dealer.id, ['campaign', 'faq']);
+  const material = materialOf(lead ?? vehicles[0] ?? null);
 
   return {
     dealer,
     account,
     persona,
     pillar: post.pillar,
-    angle: post.angle?.trim() || DEFAULT_ANGLE[post.pillar],
+    angle: post.angle?.trim() || material.content_angles[0] || DEFAULT_ANGLE[post.pillar],
     model: post.model,
     brand,
     brand_zh: brandZh,
@@ -365,6 +379,19 @@ export function gatherInputs(ctx: AppContext, post: Post): ComposeInputs {
     offers,
     campaigns: knowledge.filter((k) => k.category === 'campaign'),
     faqs: knowledge.filter((k) => k.category === 'faq'),
+    material,
+  };
+}
+
+/** The card's own words for this trim; empty when nobody has written them yet. */
+function materialOf(vehicle: Vehicle | null): VehicleMaterial {
+  if (!vehicle || vehicle.archived_at) return { description: '', highlights: [], target_customers: [], content_angles: [], competitors: [] };
+  return {
+    description: (vehicle.description ?? '').trim(),
+    highlights: vehicle.highlights,
+    target_customers: vehicle.target_customers ?? [],
+    content_angles: vehicle.content_angles ?? [],
+    competitors: (vehicle.competitors ?? []).map((c) => `${c.name}${c.note ? `（${c.note}）` : ''}`),
   };
 }
 

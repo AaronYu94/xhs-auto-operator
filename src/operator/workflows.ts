@@ -26,6 +26,7 @@ import {
 } from '../core/types.ts';
 import type { CapabilityReport } from '../providers/xhs/types.ts';
 import { assignLead, getActiveAssignment } from '../skills/acquisition/account-assignment/index.ts';
+import { STAGE_INDEX } from '../skills/operations/crm/index.ts';
 import { evolveQueries, generateQueries } from '../skills/acquisition/automotive-query-generation/index.ts';
 import { dataModeForProvider, ingestPublicContent, runDiscovery } from '../skills/acquisition/lead-discovery/index.ts';
 import { researchLead } from '../skills/acquisition/lead-research/index.ts';
@@ -37,6 +38,8 @@ import { collectPerformance, publishDuePosts } from '../skills/content/publishin
 import { computeFleetHealth } from '../skills/operations/account-health/index.ts';
 import { recordCapabilitySnapshots, syncFleetAuth } from '../skills/operations/account-sessions/index.ts';
 import { getDealer, getKnowledge, isOfferActive } from '../skills/operations/dealer-brain/index.ts';
+import { syncAccountNotifications } from '../skills/operations/notification-inbox/index.ts';
+import { refreshDealerVoices } from '../skills/content/account-voice/index.ts';
 import { runOptimization } from '../skills/operations/optimization/index.ts';
 import { generateOperatorReport } from '../skills/operations/reporting/index.ts';
 import { runMarketResearch } from '../skills/research/automotive-market-research/index.ts';
@@ -53,6 +56,13 @@ import { skipStep, type StepContext, type WorkflowDef, type WorkflowStepDef } fr
 export const GOAL_WORKFLOW = 'goal_execution';
 export const MAX_RESEARCH_PER_RUN = 20;
 export const MAX_ASSIGN_PER_RUN = 200;
+/**
+ * Stages where a lead needs an owning account. Leads belong to the store, so a lead that lost its owner (its account
+ * left the fleet) is picked up here again at whatever stage it reached — not only fresh QUALIFIED ones.
+ */
+export const ASSIGNABLE_STAGES: readonly LeadStage[] = LEAD_STAGES.filter(
+  (stage) => STAGE_INDEX[stage] >= STAGE_INDEX.QUALIFIED && stage !== 'WON' && stage !== 'LOST',
+);
 export const MAX_OUTREACH_PER_RUN = 50;
 export const MAX_POSTS_PER_RUN = 30;
 export const MAX_OWN_NOTE_COMMENTS = 100;
@@ -309,14 +319,20 @@ export function ensureQueriesStep(mode: 'goal' | 'if_missing'): WorkflowStepDef 
 }
 
 export function discoverStep(): WorkflowStepDef {
-  return step('discover', 'lead-hunting-agent', 'lead-discovery', '按搜索词在小红书搜索公开笔记与评论，先粗筛再识别购车意向、判断发言人身份、评分并去重入库', async ({ ctx, run, input }) => {
+  return step('discover', 'lead-hunting-agent', 'lead-discovery', '按搜索词在小红书搜索公开笔记与评论，先粗筛再识别购车意向、判断发言人身份、评分并去重入库', async ({ ctx, run, input, progress }) => {
     const dealerId = dealerIdOf({ run, input });
     const goal = resolveGoal(ctx, dealerId, goalIdOf({ run, input }));
+    // Optional run input (e.g. a small trial run from 系统 → 手动运行); absent = the skill's defaults.
+    const maxPosts = positiveInt(input.max_posts);
+    const maxComments = positiveInt(input.max_comments_per_post);
     const result = await runDiscovery(ctx, {
       dealer_id: dealerId,
       goal_id: goal?.id ?? null,
       max_queries: positiveInt(input.max_queries),
-    });
+      ...(maxPosts || maxComments
+        ? { limits: { ...(maxPosts ? { max_posts: maxPosts } : {}), ...(maxComments ? { max_comments_per_post: maxComments } : {}) } }
+        : {}),
+    }, (p) => progress({ ...p }));
     const runs = result.runs.map((r) => ({
       run_id: r.id,
       query_id: r.query_id,
@@ -344,6 +360,10 @@ export function discoverStep(): WorkflowStepDef {
     const details = { provider: ctx.xhs.name, mode: ctx.xhs.mode, runs, totals, leads_touched: result.leads_touched, blocked: result.blocked };
     if (result.blocked && !runs.some((r) => r.status === 'SUCCEEDED')) {
       return skipStep(`公开内容搜索被阻断（${result.blocked.status}）：${result.blocked.reason}`, details);
+    }
+    // Every query failed without a block (e.g. one query that timed out): nothing was searched, so this is not done.
+    if (runs.length > 0 && !runs.some((r) => r.status === 'SUCCEEDED')) {
+      return skipStep(`${runs.length} 个搜索词都没有搜索成功：${runs[0]?.error ?? ''}`, details);
     }
     return details;
   });
@@ -384,7 +404,10 @@ export function assignLeadsStep(): WorkflowStepDef {
     const dealerId = dealerIdOf({ run, input });
     const leads = ctx.db
       .table('leads')
-      .query('dealer_id = ? AND stage = ? AND suppressed = 0', [dealerId, 'QUALIFIED'], { orderBy: 'score DESC, last_signal_at DESC', limit: MAX_ASSIGN_PER_RUN });
+      .query(`dealer_id = ? AND suppressed = 0 AND stage IN (${ASSIGNABLE_STAGES.map(() => '?').join(', ')})`, [dealerId, ...ASSIGNABLE_STAGES], {
+        orderBy: 'score DESC, last_signal_at DESC',
+        limit: MAX_ASSIGN_PER_RUN,
+      });
     const assigned: { lead_id: string; account_id: string; reason: string }[] = [];
     const notAssigned: { lead_id: string; reason: string }[] = [];
     for (const lead of leads) {
@@ -467,6 +490,65 @@ export function pollInboxStep(): WorkflowStepDef {
         return skipStep(`所有账号均无法自动接收私信（${reasons.join('；')}）；回复需销售在控制台手动录入`, { accounts: results });
       }
       return { processed, accounts: results };
+    },
+    { optional: true },
+  );
+}
+
+/**
+ * The platform's own inbox: who commented on our notes, @-mentioned us, liked or collected them, and who started
+ * following. Buyer comments become leads here, so an inbound customer is picked up in the same half hour as a reply.
+ */
+export function syncNotificationsStep(): WorkflowStepDef {
+  return step(
+    'sync_notifications',
+    'lead-hunting-agent',
+    'notification-inbox',
+    '读取每个账号在小红书消息中心收到的评论和@、赞和收藏、新增关注，把有购车意向的评论变成线索',
+    async ({ ctx, run, input }) => {
+      const accounts = activeAccounts(ctx, dealerIdOf({ run, input }));
+      if (accounts.length === 0) return skipStep('没有活跃账号');
+      const results = [];
+      for (const account of accounts) {
+        const r = await syncAccountNotifications(ctx, account.id);
+        results.push({ account_id: account.id, nickname: account.nickname, created: r.created, leads_created: r.leads_created, tabs: r.tabs, detail: r.detail });
+      }
+      if (results.every((r) => r.tabs.every((t) => t.status !== 'AVAILABLE'))) {
+        const reasons = [...new Set(results.flatMap((r) => r.tabs.map((t) => `${t.status}：${t.reason}`)).filter(Boolean))];
+        return skipStep(`所有账号都读不到消息中心（${reasons.join('；')}）`, { accounts: results });
+      }
+      return {
+        created: results.reduce((s, r) => s + r.created, 0),
+        leads_created: results.reduce((s, r) => s + r.leads_created, 0),
+        accounts: results,
+      };
+    },
+    { optional: true },
+  );
+}
+
+/**
+ * 账号语言风格: keep each account's learned voice current. Only accounts whose profile is missing or older than a week
+ * are re-read, so this is cheap on most days and picks up new notes as the store keeps publishing.
+ */
+export function learnAccountVoiceStep(): WorkflowStepDef {
+  return step(
+    'learn_account_voice',
+    'account-strategy-agent',
+    'account-voice',
+    '读取每个账号自己已发布的笔记，更新它独有的写作风格（标题、句式、emoji、结构、引导语、称呼）',
+    async ({ ctx, run, input }) => {
+      const dealerId = dealerIdOf({ run, input });
+      const results = await refreshDealerVoices(ctx, dealerId, 'agent:account-strategy-agent');
+      if (results.length === 0) return skipStep('没有需要更新语言风格的账号（都在一周内学过）');
+      const learned = results.filter((r) => r.status === 'AVAILABLE');
+      if (learned.length === 0) {
+        return skipStep(`暂时学不到语言风格（${[...new Set(results.map((r) => r.reason))].join('；')}）`, { accounts: results.map((r) => ({ account_id: r.account_id, reason: r.reason })) });
+      }
+      return {
+        learned: learned.length,
+        accounts: results.map((r) => ({ account_id: r.account_id, nickname: r.account_name, status: r.status, samples: r.used, rules: r.profile?.rules.length ?? 0, reason: r.reason })),
+      };
     },
     { optional: true },
   );
@@ -795,14 +877,18 @@ export function buildWorkflows(): WorkflowDef[] {
   return [
     {
       name: 'refresh_dealer_data',
-      description: '08:00 刷新门店数据：Dealer Brain 到期检查、账号健康、登录会话、能力检测',
-      steps: [checkDealerFactsStep(), accountHealthStep(), accountSessionsStep(), capabilitySnapshotStep()],
+      description: '08:00 刷新门店数据：Dealer Brain 到期检查、账号健康、登录会话、能力检测、账号语言风格',
+      steps: [checkDealerFactsStep(), accountHealthStep(), accountSessionsStep(), capabilitySnapshotStep(), learnAccountVoiceStep()],
     },
     { name: 'market_research', description: '08:30 市场与竞品研究（证据为公开原文）', steps: researchSteps() },
     { name: 'account_planning', description: '09:00 为每个账号制定未来 7 天差异化内容计划', steps: [planContentStep('tomorrow')] },
     { name: 'lead_discovery', description: '09:30 公开信号获客：搜索 → 意向识别 → 评分去重 → 分配 → 私信准备', steps: leadChain('if_missing') },
     { name: 'signal_processing', description: '每小时：分配合格线索、准备私信', steps: [assignLeadsStep(), prepareOutreachStep()] },
-    { name: 'reply_processing', description: '每 30 分钟：处理回复、安排跟进', steps: [pollInboxStep(), planFollowUpsStep()] },
+    {
+      name: 'reply_processing',
+      description: '每 30 分钟：读取消息中心、处理回复、安排跟进',
+      steps: [syncNotificationsStep(), pollInboxStep(), planFollowUpsStep()],
+    },
     { name: 'content_publishing', description: '每小时：生成、审核并发布到期笔记', steps: [generatePostsStep(), reviewPostsStep(), publishDueStep()] },
     {
       name: 'performance_collection',

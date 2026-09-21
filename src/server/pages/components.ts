@@ -1,6 +1,17 @@
 /** Page fragments shared by several console pages. */
 import type { ConversationMessage, ConversationSlots } from '../../core/types.ts';
 import { cny, esc, fmtTime, messageStatusPill } from '../render.ts';
+import { xhsImageSrc } from '../api/media.ts';
+
+/**
+ * A person's or an account's real Xiaohongshu avatar, proxied. Without one it stays the first character of the name:
+ * the console never borrows a stock face for someone whose picture it has not seen.
+ */
+export function avatarHtml(name: string, url: string | null | undefined, cls = ''): string {
+  const src = xhsImageSrc(url);
+  const letter = esc([...name.trim()][0] ?? '·');
+  return `<span class="avatar${cls ? ` ${cls}` : ''}" aria-hidden="true">${letter}${src ? `<img src="${esc(src)}" alt="" loading="lazy" decoding="async">` : ''}</span>`;
+}
 
 export function threadHtml(messages: ConversationMessage[], tz: string): string {
   if (messages.length === 0) return '<p class="muted small">还没有对话记录。</p>';

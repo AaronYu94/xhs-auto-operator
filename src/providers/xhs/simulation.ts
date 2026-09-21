@@ -479,6 +479,8 @@ export class SimulationXhsProvider implements XhsProvider {
       read_public_comments: read('comments'),
       read_public_profile: read('user profiles'),
       read_engagement: read('engagement metrics'),
+      // The notification centre belongs to a real logged-in account; inventing one would be inventing inbound customers.
+      read_notifications: { status: 'UNAVAILABLE', reason: `${SIM_TAG} the Xiaohongshu notification centre exists only for a real logged-in account` },
       publish_content: gated('publish_content', this.opts.publish, 'publishing'),
       reply_comments: gated('reply_comments', this.opts.reply_comments, 'comment replies'),
       receive_messages: gated('receive_messages', this.opts.receive_messages, 'scripted inbox'),
@@ -577,7 +579,8 @@ export class SimulationXhsProvider implements XhsProvider {
         data: {
           platform_user_id: userId,
           nickname: profile.nickname,
-          profile_url: xhsProfileUrl(userId),
+          avatar_url: null,
+      profile_url: xhsProfileUrl(userId),
           bio: profile.bio,
           ip_location: profile.ip_location,
           follower_count: profile.follower_count,
@@ -609,7 +612,8 @@ export class SimulationXhsProvider implements XhsProvider {
       data: {
         platform_user_id: userId,
         nickname: found?.author.nickname ?? latestAuthored[0].author.nickname,
-        profile_url: xhsProfileUrl(userId),
+        avatar_url: null,
+      profile_url: xhsProfileUrl(userId),
         bio: null,
         ip_location: withIp?.ip_location ?? authoredIp,
         follower_count: null,
@@ -858,7 +862,8 @@ export class SimulationXhsProvider implements XhsProvider {
       author: {
         platform_user_id: note.author.platform_user_id,
         nickname: note.author.nickname,
-        profile_url: xhsProfileUrl(note.author.platform_user_id),
+        avatar_url: null,
+      profile_url: xhsProfileUrl(note.author.platform_user_id),
       },
       like_count: this.likesOf(note),
       url: xhsNoteUrl(note.platform_post_id, note.xsec_token),
@@ -886,7 +891,8 @@ export class SimulationXhsProvider implements XhsProvider {
       author: {
         platform_user_id: c.author.platform_user_id,
         nickname: c.author.nickname,
-        profile_url: xhsProfileUrl(c.author.platform_user_id),
+        avatar_url: null,
+      profile_url: xhsProfileUrl(c.author.platform_user_id),
       },
       content: c.content,
       ip_location: c.ip_location,

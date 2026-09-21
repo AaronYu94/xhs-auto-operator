@@ -6,6 +6,7 @@ import {
   APPROVAL_POLICIES,
   AUTH_STATES,
   CONTENT_PILLARS,
+  DM_CHANNELS,
   INVENTORY_STATUSES,
   KNOWLEDGE_CATEGORIES,
   OFFER_TYPES,
@@ -232,6 +233,7 @@ const settingsShape = v.object({
   max_ai_conversation_turns: v.optional(v.number({ int: true, min: 0 })),
   auto_send_min_score: v.optional(v.number({ min: 0, max: 100 })),
   timezone: v.optional(timezoneValidator),
+  dm_channel: v.optional(v.literal(DM_CHANNELS)),
 });
 
 /** Partial dealer settings; unknown keys are rejected so a typo never silently falls back to a default limit. */

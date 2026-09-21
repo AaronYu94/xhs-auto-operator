@@ -5,7 +5,8 @@ import { getSetupStatus } from '../../operator/onboarding.ts';
 import type { CapabilityStatus, Dealer, XhsCapability } from '../../core/types.ts';
 import { listDealers } from '../../skills/operations/dealer-brain/index.ts';
 import { queryString, type Reply, type RequestContext } from '../http.ts';
-import { esc, href, layout, type Banner, type TabKey } from '../render.ts';
+import { WORKFLOW_LABEL, ago, esc, hint, href, layout, type AgentStatus, type Banner, type TabKey, type Theme } from '../render.ts';
+import { humanProblem, scrubInternals } from '../humanize.ts';
 import type { ServerOptions, ServerRuntime } from '../runtime.ts';
 
 export interface PageEnv {
@@ -87,37 +88,45 @@ export function pendingCount(ctx: AppContext, dealerId: string | null): number {
   );
 }
 
-export function honestBanners(env: PageEnv, dealer: Dealer | null): Banner[] {
+export function honestBanners(env: PageEnv, dealer: Dealer | null, active: TabKey | null = null): Banner[] {
   const { ctx, config } = env.runtime;
   const out: Banner[] = [];
   const dealerParam = dealer ? { dealer: dealer.id } : {};
   if (ctx.xhs.mode === 'simulation') {
     out.push({
       tone: 'violet',
-      html: '<b>模拟数据模式</b>：线索、笔记和评论来自合成语料，<b>不是真实客户</b>，仅用于测试和演示。生产环境会拒绝启用模拟数据。',
+      html: `<b>演示数据</b>：这里的线索、笔记和评论都是假的，<b>不是真实客户</b>。${hint('这是用来试功能和演示的一套样例内容。正式使用时系统不会出现这种数据。')}`,
     });
   } else if (ctx.xhs.mode === 'none' || ctx.xhs.mode === 'manual') {
     out.push({
       tone: 'red',
-      html: `<b>未连接小红书</b>：没有配置数据源（${esc(ctx.xhs.name)}），系统不会搜索公开内容。请按部署文档配置 <span class="mono">XHS_PROVIDER=mcp</span> 与每个账号的 xiaohongshu-mcp 实例，或在「系统」页导入真实公开内容。`,
+      html: `<b>还没连小红书</b>：系统暂时找不了客户。<a class="link" href="${esc(href('/accounts', dealerParam))}">去连账号 →</a>${hint('先在「账号」页添加你们自己的小红书号并扫码登录，系统才能在公开笔记和评论里找买车的人。')}`,
     });
   } else {
     const search = latestCapabilityForDealer(ctx, 'search_public_content', dealer?.id ?? null);
     if (!search) {
-      out.push({ tone: 'amber', html: `尚未检测小红书连接状态。<a class="link" href="${esc(href('/accounts', dealerParam))}">前往账号页检测并扫码登录 →</a>` });
+      // On 账号 itself the card already says 登录未检测 right next to the button that fixes it.
+      if (active !== 'accounts') {
+        out.push({ tone: 'amber', html: `还没查过小红书能不能用。<a class="link" href="${esc(href('/accounts', dealerParam))}">去账号页点「检测登录状态」→</a>` });
+      }
     } else if (search.status === 'REQUIRES_AUTH') {
       out.push({
         tone: 'amber',
-        html: `<b>需要扫码登录</b>：搜索公开内容当前不可用（${esc(search.reason)}）。这不是“没有结果”，而是小红书会话未登录。<a class="link" href="${esc(href('/accounts', dealerParam))}">前往账号页扫码登录 →</a>`,
+        html: `<b>账号掉登录了</b>：现在搜不了公开内容——不是没搜到，是要重新扫码。<a class="link" href="${esc(href('/accounts', dealerParam))}">去扫码登录 →</a>`,
       });
     } else if (search.status !== 'AVAILABLE') {
-      out.push({ tone: 'red', html: `<b>小红书搜索不可用</b>：${esc(search.reason)}` });
+      out.push({ tone: 'red', html: `<b>暂时搜不了公开内容</b>：${esc(humanProblem(search.reason) ?? '')}` });
     }
   }
-  if (!env.options.auth_enabled) {
-    out.push({ tone: 'amber', html: '<b>未设置控制台密码</b>（CONSOLE_PASSWORD）：能访问此地址的任何人都可以操作系统，仅限本机开发使用。' });
+  // The password warning is real but not actionable by a salesperson, and it is not news on every page: it belongs
+  // where someone can do something about it.
+  if (!env.options.auth_enabled && (dealer === null || active === 'setup')) {
+    out.push({ tone: 'amber', html: `<b>这个控制台还没设密码</b>：谁打开这个网址都能操作。${hint('请让搭系统的同事设置一个登录密码，再把网址发给同事使用。')}` });
   }
-  for (const w of config.warnings) out.push({ tone: 'amber', html: esc(w) });
+  // Startup warnings are written for whoever runs the deployment; the log has them in full.
+  if (config.warnings.length > 0 && active === 'system') {
+    out.push({ tone: 'amber', html: `系统有 ${esc(config.warnings.length)} 项配置需要技术同事检查。${hint(config.warnings.map((w) => scrubInternals(w)).filter(Boolean))}` });
+  }
   return out;
 }
 
@@ -127,10 +136,56 @@ export interface PageInput {
   dealer: Dealer | null;
   dealers: Dealer[];
   h1: string;
+  /** what this page is for, behind the 「?」 next to the title — never written out under it */
+  help?: string | readonly string[];
   subtitle: string;
   body: string;
   exceptions?: number;
   extraBanners?: Banner[];
+  /** the page renders its own hero instead of the title row (今日) */
+  hideHead?: boolean;
+}
+
+export const THEME_COOKIE = 'st_theme';
+export const RAIL_COOKIE = 'st_rail';
+
+/** The operator collapsed the nav to icons. Read server-side so the shell never renders wide and then snaps shut. */
+export function railFromRequest(rc: RequestContext): boolean {
+  return new RegExp(`(?:^|;\\s*)${RAIL_COOKIE}=1(?:;|$)`).test(rc.req.headers.cookie ?? '');
+}
+
+/** The operator's explicit light / dark choice (cookie set by the theme toggle); null = follow the system. */
+export function themeFromRequest(rc: RequestContext): Theme | null {
+  const raw = rc.req.headers.cookie ?? '';
+  const m = new RegExp(`(?:^|;\\s*)${THEME_COOKIE}=(light|dark)(?:;|$)`).exec(raw);
+  return m ? (m[1] as Theme) : null;
+}
+
+/**
+ * What Steer is doing, from real workflow runs only: the running run (newest first), else the last finished one,
+ * else idle. Never a rotating sample text.
+ */
+export function agentStatus(ctx: AppContext, dealerId: string | null): AgentStatus {
+  const nowMs = ctx.clock.now().getTime();
+  const scope = dealerId ? '(dealer_id = ? OR dealer_id IS NULL)' : '1 = 1';
+  const params = dealerId ? [dealerId] : [];
+  const running = ctx.db.get<{ workflow: string; started_at: string }>(
+    `SELECT workflow, started_at FROM workflow_runs WHERE status = 'RUNNING' AND ${scope} ORDER BY started_at DESC LIMIT 1`,
+    ...params,
+  );
+  if (running) {
+    return { running: true, html: `Steer 正在<b>${esc(WORKFLOW_LABEL[running.workflow] ?? running.workflow)}</b>`, since: running.started_at, sinceLabel: `${ago(running.started_at, nowMs)}开始` };
+  }
+  const last = ctx.db.get<{ workflow: string; status: string; finished_at: string | null; started_at: string }>(
+    `SELECT workflow, status, finished_at, started_at FROM workflow_runs WHERE status <> 'RUNNING' AND ${scope} ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 1`,
+    ...params,
+  );
+  if (last) {
+    const at = last.finished_at ?? last.started_at;
+    const verb = last.status === 'SUCCEEDED' ? '完成了' : last.status === 'FAILED' ? '运行失败：' : '结束了';
+    return { running: false, html: `Steer 待命，最近${verb}<b>${esc(WORKFLOW_LABEL[last.workflow] ?? last.workflow)}</b>`, since: at, sinceLabel: ago(at, nowMs) };
+  }
+  return { running: false, html: 'Steer 待命，<b>下达一个经营目标</b>开始工作', since: null, sinceLabel: null };
 }
 
 export function renderPage(env: PageEnv, rc: RequestContext, p: PageInput): Reply {
@@ -144,8 +199,12 @@ export function renderPage(env: PageEnv, rc: RequestContext, p: PageInput): Repl
       authEnabled: env.options.auth_enabled,
       provider: { name: env.runtime.ctx.xhs.name, mode: env.runtime.ctx.xhs.mode },
       exceptions: p.exceptions ?? pendingCount(env.runtime.ctx, p.dealer?.id ?? null),
-      banners: [...honestBanners(env, p.dealer), ...setupBanners(env, p), ...(p.extraBanners ?? [])],
-      h1: p.h1,
+      banners: [...honestBanners(env, p.dealer, p.active), ...setupBanners(env, p), ...(p.extraBanners ?? [])],
+      theme: themeFromRequest(rc),
+      railCollapsed: railFromRequest(rc),
+      agent: agentStatus(env.runtime.ctx, p.dealer?.id ?? null),
+      hideHead: p.hideHead,
+      h1: `${p.h1}${p.help ? hint(p.help) : ''}`,
       subtitle: p.subtitle,
       body: p.body,
     }),
@@ -157,6 +216,8 @@ function setupBanners(env: PageEnv, p: PageInput): Banner[] {
   if (!p.dealer || p.active === 'setup' || p.active === 'overview') return [];
   const status = getSetupStatus(env.runtime.ctx, p.dealer.id);
   if (status.ready) return [];
+  // 账号 is where an account blocker is fixed: repeating it above the very buttons that fix it is noise.
+  if (p.active === 'accounts' && (status.blocker ?? '').includes('账号')) return [];
   return [
     {
       tone: 'amber',
@@ -166,10 +227,10 @@ function setupBanners(env: PageEnv, p: PageInput): Banner[] {
 }
 
 export function noDealerBody(): string {
-  return `<div class="panel"><h2 class="panel-title">还没有门店</h2>
+  return `<div class="empty"><h2 class="panel-title">还没有门店</h2>
 <p class="muted">系统不内置任何门店、品牌或账号。请先填写您自己的门店信息，再添加您自己的小红书账号并扫码登录，之后才能开始获客。</p>
 <a class="btn btn-primary" href="/setup">开始设置</a>
-<p class="small muted" style="margin-top:16px">批量迁移时也可以在「系统」页导入 Dealer Brain JSON，或使用命令行 <span class="mono">node src/cli.ts dealer import ./my-dealer.json</span>。</p></div>`;
+</div>`;
 }
 
 export function dateLabel(iso: string, tz: string): string {

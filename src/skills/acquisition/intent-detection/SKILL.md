@@ -130,6 +130,12 @@ carries `not_interested` or `negative_feedback`, the codes lead scoring reads as
   skill `intent-detection`) records inputs (text, context, dealer_id, evaluated_at, timezone, prefilter, llm usage or
   `skipped_reason: 'author_role:<role>'`), evidence, output (incl. `author_role`, `is_marketing`) and confidence.
 
+- Seller detection (prefilter `marketing_account`): dealer-store phrasing (`DEALER_TEXT_RE`: 品鉴, 展车/新车已到店,
+  试驾有礼, 评论区扣1, contact homophones 厚台/厚苔/🐍信/丝我) unless a question follows the hit; promotion terms
+  (`PROMO_TERM_RE`: 限时, 至高…元, 尾款减免, 0首付, 2年0息, 名额有限…) when ≥ 3 distinct, or 2 in a text without a
+  question. Account names matching `DEALER_ACCOUNT_NAME_RE` set `is_marketing`. '想入手的别错过' / '想买X的宝子' is the
+  readers' wish, not the author's (`READER_AUDIENCE_AFTER_RE`). Real samples: `test/unit/nlu/live-dealer-posts.test.ts`.
+
 ## Runtime entry points
 - `src/skills/acquisition/intent-detection/index.ts`
   - `detectIntent(ctx, input): Promise<IntentDetection>`

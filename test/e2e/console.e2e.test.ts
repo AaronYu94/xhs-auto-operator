@@ -4,7 +4,9 @@
  * reply capture → appointment, dashboard, every console page, restart persistence, production refusals, webhook.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer, type IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -172,7 +174,7 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
       const detail = await page(c, `/leads/${item.lead.id}?dealer=${HZ_DEALER_ID}`);
       assert.match(detail, /查看原帖/);
       assert.match(detail, /模拟数据/);
-      assert.match(detail, /已人工发送/);
+      assert.match(detail, /已由人发出/);
       const overview = await page(c, `/?dealer=${HZ_DEALER_ID}`);
       assert.match(overview, /模拟数据模式/);
       assert.doesNotMatch(overview, /发送成功/);
@@ -275,6 +277,91 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
       await waitRun(c, goal.run.id);
     } finally {
       await c.close();
+    }
+  });
+
+  it('login window: a local xiaohongshu-mcp instance is logged in through the visible-window helper, one browser call at a time', async () => {
+    const dir = tempDir();
+    const dataDir = join(dir, 'fleet');
+    mkdirSync(join(dataDir, 'research'), { recursive: true });
+    const cookies = join(dataDir, 'research', 'cookies.json');
+    // Stand-in for tools/xhs-visible-login: writes the instance's cookies file and prints the verdict line.
+    const helper = join(dir, 'xhs-visible-login');
+    writeFileSync(helper, `#!/bin/sh\nprintf '{"session":"logged-in"}' > "$COOKIES_PATH"\necho 'time="t" level=info msg="LOGIN_OK: logged in; 1 cookies saved"'\n`);
+    chmodSync(helper, 0o755);
+
+    // Fake xiaohongshu-mcp: logged in iff its cookies file holds a session (like the real instance reading COOKIES_PATH).
+    let inFlight = 0;
+    let peak = 0;
+    const calls: string[] = [];
+    const readBody = (req: IncomingMessage) => new Promise<string>((resolve) => {
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => resolve(b));
+    });
+    const mcp = createHttpServer(async (req, res) => {
+      const body = JSON.parse(await readBody(req)) as { id?: number; method: string; params?: { name?: string } };
+      if (body.id === undefined) return res.writeHead(202).end();
+      const reply = (result: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
+      if (body.method === 'initialize') return reply({ protocolVersion: '2025-06-18', capabilities: {} });
+      if (body.method === 'tools/list') return reply({ tools: ['check_login_status', 'get_login_qrcode', 'search_feeds', 'get_my_profile'].map((name) => ({ name })) });
+      const tool = String(body.params?.name);
+      calls.push(tool);
+      peak = Math.max(peak, ++inFlight);
+      await new Promise((r) => setTimeout(r, 20)); // a browser call takes time
+      inFlight--;
+      const loggedIn = existsSync(cookies) && readFileSync(cookies, 'utf8').includes('logged-in');
+      const text = (t: string, isError = false) => reply({ content: [{ type: 'text', text: t }], isError });
+      if (tool === 'check_login_status') return text(loggedIn ? '✅ 已登录\n用户名: 研究号\n\n你可以使用其他功能了。' : '❌ 未登录\n\n请使用 get_login_qrcode 工具获取二维码进行登录。');
+      if (tool === 'get_my_profile') return loggedIn ? text(JSON.stringify({ userBasicInfo: { nickname: '研究号', redId: '9' }, feeds: [] })) : text('context deadline exceeded', true);
+      return text(`unexpected ${tool}`, true);
+    });
+    await new Promise<void>((r) => mcp.listen(0, '127.0.0.1', r));
+    const mcpUrl = `http://127.0.0.1:${(mcp.address() as AddressInfo).port}/mcp`;
+
+    const c = await boot({
+      APP_ENV: 'development',
+      DATABASE_PATH: join(dir, 'login.db'),
+      XHS_PROVIDER: 'mcp',
+      XHS_MCP_RESEARCH_URL: mcpUrl,
+      XHS_LOGIN_HELPER: helper,
+      XHS_MCP_DATA_DIR: dataDir,
+      CONSOLE_PASSWORD: PASSWORD,
+      SESSION_SECRET: SECRET,
+    });
+    try {
+      await login(c, '登录测试', PASSWORD);
+      const created = await api(c, 'POST', '/api/dealers', { name: '城南汽车销售服务店', brands: '比亚迪', city: '成都' }, [201]);
+      const accounts = await page(c, `/accounts?dealer=${created.id}`);
+      assert.match(accounts, /data-action="window-login" data-url="\/api\/research-session\/login-window"/);
+      assert.match(accounts, /二维码（备用）/);
+
+      const before = await api(c, 'POST', '/api/research-session/status');
+      assert.equal(before.logged_in, false);
+
+      // Console polling + a double click: concurrent checks share one probe and never overlap on the instance.
+      const checksBefore = calls.filter((t) => t === 'check_login_status').length;
+      const burst = await Promise.all([1, 2, 3].map(() => api(c, 'POST', '/api/research-session/status')));
+      assert.ok(burst.every((r) => r.logged_in === false));
+      assert.equal(calls.filter((t) => t === 'check_login_status').length - checksBefore, 1);
+      assert.equal(peak, 1, 'never two browser calls at once on one instance');
+
+      const started = await api(c, 'POST', '/api/research-session/login-window', {}, [202]);
+      assert.equal(started.job.instance, 'research');
+      let job = started.job;
+      for (let i = 0; i < 100 && job.state === 'running'; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        job = (await api(c, 'POST', '/api/research-session/login-window/status')).job;
+      }
+      assert.equal(job.state, 'succeeded', job.detail);
+      assert.match(job.detail, /LOGIN_OK/);
+      const after = await api(c, 'POST', '/api/research-session/status');
+      assert.equal(after.logged_in, true);
+      assert.equal(after.username, '研究号');
+      assert.equal(peak, 1);
+    } finally {
+      await c.close();
+      await new Promise((r) => mcp.close(r));
     }
   });
 

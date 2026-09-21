@@ -69,6 +69,7 @@ export function seedLead(
     platform_user_id: input.platform_user_id,
     username: input.platform_user_id,
     profile_url: null,
+    avatar_url: null,
     stage: input.stage ?? 'QUALIFIED',
     score: 70,
     tier: 'qualified',

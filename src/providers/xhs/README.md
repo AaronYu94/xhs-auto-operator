@@ -11,6 +11,9 @@ success for something it cannot do.**
 | `simulation.ts` | `SimulationXhsProvider`: synthetic corpus for tests and demos (`mode: 'simulation'`) |
 | `mcp-client.ts` | `McpHttpClient`: minimal MCP streamable-HTTP JSON-RPC client, typed `McpError` |
 | `mcp-provider.ts` | `McpXhsProvider`: live adapter for [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) (`mode: 'live'`) |
+| `visible-login.ts` | `runVisibleLoginHelper`: runs `tools/xhs-visible-login` (login window for a local instance), `parseHelperOutput` |
+| `dm-send.ts` | `runDmSendHelper`: runs `tools/xhs-dm-send` (one reviewed DM from the account's own session), `parseSenderOutput` (verdict + the recipient's `peer_avatar_url`, xhscdn only), `DM_SEND_UNKNOWN_MARK` |
+| `local-instance.ts` | `startLocalInstanceProcess`: starts a new account's own instance on this host (fleet-script layout, free port above the base port, `/health` before it is called started), `findInstancePort`, `isLoopbackHost` |
 | `juguang-webhook.ts` | `parseJuguangLeadPush`: tolerant parser for the official 聚光 "私信API对接" lead push (`red_id`, scoped nested lookup, Shanghai-time parsing) |
 | `index.ts` | `createXhsProvider(clock, cfg)`, `xhsProviderConfigFromEnv(env)`, re-exports |
 | `../../../fixtures/xhs/simulation-corpus.json` | the simulation corpus (15 notes, 108 comments) |
@@ -25,6 +28,7 @@ success for something it cannot do.**
 | read_public_profile | AVAILABLE | `user_profile` (needs the `xsec_token` seen with the user) | UNAVAILABLE |
 | publish_content | option `publish` (default off) | `publish_content`: at least 1 image, **no note id returned** | UNAVAILABLE |
 | read_engagement | AVAILABLE | `get_my_profile` feeds interactInfo (**no views**) | UNAVAILABLE |
+| read_notifications | **UNAVAILABLE** (the corpus has no notification centre) | `list_notifications` + `get_unread_count` | UNAVAILABLE |
 | reply_comments | option `reply_comments` (default off) | `reply_comment_in_feed` | UNAVAILABLE |
 | receive_messages | option `receive_messages` (scripted inbox, default off) | **UNAVAILABLE**: no DM inbox tool. Official DM access only via 私信通 / approved 三方客服 vendors | UNAVAILABLE |
 | send_messages | option `send_messages` (default off) | **UNAVAILABLE**: no authorized API for DMs to users | UNAVAILABLE |
@@ -70,11 +74,26 @@ Live detection details:
   `check_login_status`, cached ≤ `LOGIN_CACHE_TTL_MS` = 60 s, dropped on login text or a new QR request). Logged out →
   `REQUIRES_AUTH` without calling the read tool. A read that fails or returns empty from a cached login state re-probes the
   session; logged out → `REQUIRES_AUTH`. Unreachable instances stay UNAVAILABLE (retryable), never REQUIRES_AUTH.
+  A read that returns content renews a cached `logged_in` state (a logged-out session cannot return content), so a
+  discovery batch probes the login once instead of every 60 s; it never turns an unknown or logged-out state into
+  logged in. Account status (`provider.auth.status`) still probes live every time.
+- **One page load per note.** `getNoteWithComments` returns the detail and comments from one `get_feed_detail`
+  (`load_all_comments: true`); a note with an empty comment section is not re-verified (the note proves the page
+  loaded). lead-discovery also skips notes it fetched within `REFETCH_AFTER_MS` (12 h), including notes an earlier
+  query of the same batch already read.
 - **`provider.auth`** (live provider only; simulation / none leave it undefined):
   `status(accountId | null)` → `{logged_in, username, platform_user_id, red_id, detail, endpoint_label}` (user id from the
   author of the account's own notes via `get_my_profile`, cached 10 min per nickname);
   `loginQrcode(accountId | null)` → `{already_logged_in, image_data_url, expires_at (now + 4 min), detail}`. An account id
-  never falls back to the research instance.
+  never falls back to the research instance. Concurrent `status` calls for one instance share one probe; while a QR code
+  or login window is pending, a logged-out status skips `get_my_profile` (it hangs 60 s on a logged-out instance).
+- **`provider.auth.visibleLogin`** (only with `visible_login` configured): Xiaohongshu rejects QR logins scanned from the
+  headless instance, so `start(accountId | null)` runs the login helper for a **loopback** instance, which opens a visible
+  browser window and writes `<data_dir>/<instance>/cookies.json` (`instance` = `research` or the platform account id).
+  `status(…)` → the latest `XhsVisibleLoginJob`. Remote instances, a missing helper or state dir fail with the fix in the
+  reason (`scripts/xhs-mcp-fleet.sh login <instance>` on the instance's host).
+- **One call at a time per instance**: every `tools/call` is queued per instance URL (`normalizeEndpointUrl`), so browser
+  calls on one session never overlap; a failed call does not block the queue.
 - **DB-configured endpoints**: `McpProviderOptions.resolveEndpoint(accountId)` supplies an endpoint when the account has none
   in `XHS_MCP_ACCOUNTS` (bootstrap: `xhs_accounts.mcp_endpoint_url` + `XHS_MCP_TOKEN`). Env wins. A DB URL equal to another
   account's env instance, an invalid URL or a throwing resolver is an explicit UNAVAILABLE failure.
@@ -104,12 +123,12 @@ COOKIES_PATH=/srv/xhs/xhs-hz-guide/cookies.json      AUTH_TOKEN=$XHS_MCP_TOKEN .
 
 - **Endpoint**: `http://<host>:<port>/mcp` (streamable HTTP, stateless, plain JSON). `/health` is the liveness probe.
 - **Auth**: `AUTH_TOKEN` (or `-token`) makes the server require `Authorization: Bearer <token>`. The client sends it when a token is configured.
-- **Login (QR)**: while the capability report shows REQUIRES_AUTH, call the instance's
-  `get_login_qrcode` tool (for example from an MCP inspector) or run the project's login binary, then
-  scan the QR code with the account's Xiaohongshu app within about 4 minutes. The cookies are written
-  to that instance's `COOKIES_PATH`. Re-check capabilities afterwards.
+- **Login**: Xiaohongshu rejects QR logins scanned from the instance's headless browser (`get_login_qrcode`), and
+  upstream's `cmd/login` panics after the scan before saving cookies. Use `scripts/xhs-mcp-fleet.sh login <instance>` (or
+  the console's 登录窗口 button): `tools/xhs-visible-login` opens a visible window with the instance's browser and
+  fingerprint seed and writes its `COOKIES_PATH`; the instance uses it on the next call. Re-check capabilities afterwards.
 - **Throughput**: every tool call launches a headless browser. Calls are slow, so the default
-  timeout is 120 s. Run one call per instance at a time.
+  timeout is 120 s. The provider runs one call per instance at a time.
 - Keep the instances on a private network. They hold live account sessions.
 
 ## Configuration
@@ -141,6 +160,9 @@ skills can pass internal account ids. Endpoints are keyed by **platform account 
 | `XHS_MCP_RESEARCH_URL` / `XHS_MCP_RESEARCH_TOKEN` | research endpoint for public reads |
 | `XHS_MCP_TIMEOUT_MS` | per-call timeout (default 120000) |
 | `XHS_MCP_ENABLE_DM_TOOLS` | accepted, but DM-like tools still only reach REQUIRES_REVIEW |
+| `XHS_LOGIN_HELPER` / `XHS_MCP_DATA_DIR` | together: login window for instances on this host (helper built by `scripts/xhs-mcp-fleet.sh build-login-helper`; state dir `<dir>/<instance>/cookies.json`) |
+| `XHS_DM_SENDER` (+ `XHS_MCP_DATA_DIR`, optional `XHS_DM_SEND_TIMEOUT_MS`) | opt-in DM sending: `send_messages` becomes AVAILABLE for accounts whose instance runs on this host, and `sendMessage` drives `tools/xhs-dm-send` on that account's `cookies.json`. SENT only with the message read back in the conversation; an unknown outcome is REQUIRES_REVIEW and never retried; a DM-like tool on the instance still forces REQUIRES_REVIEW. Unset = no DM is ever sent |
+| `XHS_MCP_BIN` (+ `XHS_MCP_DATA_DIR`, `XHS_MCP_TOKEN`, optional `XHS_MCP_BIND` / `XHS_MCP_BASE_PORT`) | this host runs the instances: `auth.localInstance.start(accountId)` gives a new account its own instance (own port above the base port, own `cookies.json`, detached, `AUTH_TOKEN` = `XHS_MCP_TOKEN`). Loopback only; env-pinned accounts (`XHS_MCP_ACCOUNTS`) and accounts whose instance process is alive are refused instead of duplicated |
 
 Endpoint selection: account-specific calls (publish, engagement, comment reply) use that account's
 instance. Without one they return UNAVAILABLE `no xiaohongshu-mcp endpoint configured for this
@@ -162,6 +184,19 @@ otherwise the research endpoint, otherwise any configured account instance.
   returns `{platform_note_id: null, url: null}`. The note id must be reconciled later, for example by
   matching titles in `get_my_profile`, or a human records it with `markPublishedManually`.
 - `reply_comment_in_feed` returns no id. The provider returns a local reference `xhs-mcp-reply:<comment_id>:<ms>`.
+- `delete_cookies {}` logs the instance out. The provider drops its login / tool / pending-login caches for that
+  endpoint afterwards, whatever the tool answered. A logged-out instance then reports 未登录 **and** stops returning an
+  own profile — both are needed, since a logged-out report alone is only trusted when `get_my_profile` agrees.
+- `get_unread_count {}` → `{mentions, likes, connections, unread}`; it does **not** clear the badges.
+- `list_notifications {tab: mentions|likes|connections, limit}` → `{tab, filtered, items[]}`. It **does** clear that
+  tab's unread badge (same as opening the page in the app), so counts are always read first. Each item carries
+  `id`, `type` (`comment/item`, `liked/item`, `faved/item`, `follow/you`, …), `title` (the platform's own wording),
+  `time` (epoch **seconds**), `from{user_id, nickname, xsec_token}`, `liked`, and for comments `comment_id` /
+  `comment_text`, for note-bound events `feed_id` / `feed_xsec_token` / `feed_title`. No avatar. `filtered` counts
+  entries the platform hid (deleted comment, note under review) and is carried through, never swallowed.
+- `reply_notification {comment_id, content}` and `like_notification {comment_id, unlike}` confirm by returning the
+  JSON record of what they did (no 成功 text) — the provider's `write_json` call mode. The reply's local reference is
+  `xhs-mcp-notify-reply:<comment_id>:<ms>`.
 - URLs: `https://www.xiaohongshu.com/explore/<id>?xsec_token=<token>` and `https://www.xiaohongshu.com/user/profile/<id>`.
 
 ## The DM limitation and the manual-send workflow

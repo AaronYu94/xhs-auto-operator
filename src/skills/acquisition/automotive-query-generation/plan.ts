@@ -343,10 +343,11 @@ function buildModelTarget(
   const lex = getModelInfo(model);
   const specs = first.specs ?? {};
   const bodyText = typeof specs.body_type === 'string' ? specs.body_type : null;
+  // Query phrasing only distinguishes 轿车 from SUV; anything else (an MPV) stays null and is phrased by model name.
   let body: 'suv' | 'sedan' | null = null;
   if (bodyText && /suv/i.test(bodyText)) body = 'suv';
   else if (bodyText && /轿/u.test(bodyText)) body = 'sedan';
-  else if (lex) body = lex.body;
+  else if (lex && (lex.body === 'suv' || lex.body === 'sedan')) body = lex.body;
   const electric = specs.powertrain ? specs.powertrain === 'EV' : lex?.powertrain === 'EV';
   const rangeKm = typeof specs.range_km === 'number' && specs.range_km > 0 ? specs.range_km : null;
 
@@ -632,6 +633,17 @@ export function buildPlannedQueries(t: QueryPlanTargets): PlannedQuery[] {
       b.add({ ...base, text: `${br.brand_zh}置换补贴`, generation_reason: `交易意图词「品牌+置换补贴」：本店当期置换政策${offerPhrase(tradeIn)}` });
     }
     b.add({ ...base, text: '什么时候买便宜', generation_reason: '交易意图词「什么时候买便宜」：关注购车时机的价格敏感买家，常处于临近下单阶段' });
+  }
+
+  // BRAND-LEVEL BUYER QUESTIONS — only while the Dealer Brain has no vehicles for the brand: without models the other
+  // classes fall back to 城市+品牌 words, which on Xiaohongshu return mostly dealer stores' promotion posts (2026-09 live
+  // capture). Buyers write questions instead. Model-level words replace these once vehicles are entered in 设置.
+  for (const br of t.brands.filter((x) => x.models.length === 0)) {
+    const why = `本店尚未在门店资料中录入${br.brand_zh}车型，先按品牌用买家常用问法搜索；录入车型后改用车型级搜索词`;
+    b.add({ query_class: 'direct_model', brand: br.brand, model: null, location: null, boost: false, text: `${br.brand_zh}值得买吗`, generation_reason: `买家问法「品牌+值得买吗」：研究阶段买家的常见问法，讨论帖评论区集中了在比较的买家；${why}` });
+    b.add({ query_class: 'purchase_scenario', brand: br.brand, model: null, location: null, boost: false, text: `${br.brand_zh}哪款值得买`, generation_reason: `买家问法「品牌+哪款值得买」：在${br.brand_zh}车型之间挑选的买家；${why}` });
+    b.add({ query_class: 'transaction_intent', brand: br.brand, model: null, location: null, boost: false, text: `${br.brand_zh}落地价`, generation_reason: `买家问法「品牌+落地价」：询问落地价的买家处于比价/成交阶段；${why}` });
+    b.add({ query_class: 'purchase_scenario', brand: br.brand, model: null, location: null, boost: false, text: `${br.brand_zh}求推荐`, generation_reason: `买家问法「品牌+求推荐」：请网友帮忙选车的买家；${why}` });
   }
 
   // LOCATION

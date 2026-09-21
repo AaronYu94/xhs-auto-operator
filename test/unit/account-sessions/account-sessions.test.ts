@@ -1,15 +1,24 @@
 import assert from 'node:assert/strict';
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { XHS_CAPABILITIES } from '../../../src/core/types.ts';
 import { PolicyError, ValidationError } from '../../../src/core/errors.ts';
+import type { LocalInstanceSpec } from '../../../src/providers/xhs/local-instance.ts';
 import { McpXhsProvider } from '../../../src/providers/xhs/mcp-provider.ts';
 import { SimulationXhsProvider } from '../../../src/providers/xhs/simulation.ts';
 import {
   ACCOUNT_BOUND_ELSEWHERE_DETAIL,
   ACCOUNT_MISMATCH_DETAIL,
   getAccountSessions,
+  loginWindowStatus,
   setAccountEndpoint,
   skill,
+  startAccountInstance,
+  logoutAccount,
   startAccountLogin,
+  startLoginWindow,
   syncAccountAuth,
   syncFleetAuth,
   validateEndpointUrl,
@@ -17,7 +26,7 @@ import {
 import { createTestContext, type TestContext } from '../../helpers/context.ts';
 import { accountIdByPlatformId, dealerIdByKey, loadDealerFixture } from '../../helpers/fixtures.ts';
 
-const TOOLS = ['check_login_status', 'get_login_qrcode', 'search_feeds', 'get_feed_detail', 'user_profile', 'publish_content', 'get_my_profile', 'reply_comment_in_feed'];
+const TOOLS = ['check_login_status', 'get_login_qrcode', 'search_feeds', 'get_feed_detail', 'user_profile', 'publish_content', 'get_my_profile', 'reply_comment_in_feed', 'delete_cookies', 'list_notifications', 'get_unread_count'];
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 interface FakeServer {
@@ -48,6 +57,12 @@ function fleetNetwork(servers: Record<string, FakeServer>) {
         const feeds = s.userId ? [{ id: 'own-1', xsecToken: 't', modelType: 'note', noteCard: { displayTitle: '笔记', user: { userId: s.userId, nickname: s.nickname } } }] : [];
         return text(JSON.stringify({ userBasicInfo: { nickname: s.nickname ?? '', redId: 'red-1' }, interactions: [], feeds }));
       }
+      case 'delete_cookies':
+        // A real instance without cookies reports logged out AND stops returning an own profile.
+        s.loggedIn = false;
+        s.userId = null;
+        s.nickname = undefined;
+        return text('已删除 cookies，登录状态已重置');
       case 'get_login_qrcode':
         return s.loggedIn
           ? text('你当前已处于登录状态')
@@ -130,7 +145,7 @@ describe('syncAccountAuth (live provider)', () => {
     assert.equal(ok.account.auth_checked_at, ctx.clock.iso());
     assert.match(ok.account.auth_detail ?? '', /已登录「杭州宝马中心官方」.*用户ID xhs-user-official 已校验/);
     const snaps = ctx.db.table('capability_snapshots').findMany({ account_id: ids.official });
-    assert.equal(snaps.length, 9);
+    assert.equal(snaps.length, XHS_CAPABILITIES.length);
     assert.equal(snaps.find((s) => s.capability === 'publish_content')?.status, 'AVAILABLE');
     assert.equal(snaps.find((s) => s.capability === 'send_messages')?.status, 'UNAVAILABLE');
     assert.equal(ctx.audit.eventsFor('xhs_account', ids.official).filter((e) => e.action === 'account.auth_synced').length, 1);
@@ -160,7 +175,11 @@ describe('syncAccountAuth (live provider)', () => {
     const { ctx, ids } = liveSetup(servers);
     setAccountEndpoint(ctx, ids.official, URL_OFFICIAL, 'operator:ops');
     setAccountEndpoint(ctx, ids.wang, URL_WANG, 'operator:ops');
-    assert.equal((await syncAccountAuth(ctx, ids.official)).account.platform_user_id, 'xhs-user-official');
+    const first = await syncAccountAuth(ctx, ids.official);
+    assert.equal(first.account.platform_user_id, 'xhs-user-official');
+    assert.equal(first.account.platform_profile?.nickname, '杭州宝马中心官方', 'the confirmed session’s own profile is stored');
+    assert.equal(first.account.platform_profile?.notes[0]?.platform_note_id, 'own-1');
+    assert.equal(first.account.platform_profile_at, ctx.clock.iso());
 
     servers[URL_OFFICIAL] = { loggedIn: true, nickname: '某个私人账号', userId: 'xhs-user-someone-else' };
     const mismatch = await syncAccountAuth(ctx, ids.official);
@@ -168,12 +187,14 @@ describe('syncAccountAuth (live provider)', () => {
     assert.equal(mismatch.account.auth_state, 'requires_auth');
     assert.ok(mismatch.reason.includes(ACCOUNT_MISMATCH_DETAIL));
     assert.equal(mismatch.account.platform_user_id, 'xhs-user-official', 'the verified id is never silently replaced');
+    assert.equal(mismatch.account.platform_profile?.nickname, '杭州宝马中心官方', 'another user’s profile is never stored on this account');
 
     servers[URL_WANG] = { loggedIn: true, nickname: '杭州宝马中心官方', userId: 'xhs-user-official' };
     const elsewhere = await syncAccountAuth(ctx, ids.wang);
     assert.equal(elsewhere.status, 'REQUIRES_AUTH');
     assert.ok(elsewhere.reason.includes(ACCOUNT_BOUND_ELSEWHERE_DETAIL));
     assert.equal(elsewhere.account.platform_user_id ?? null, null);
+    assert.equal(elsewhere.account.platform_profile ?? null, null);
   });
 
   it('syncFleetAuth probes every non-disabled account of the dealer; env endpoints win over DB rows', async () => {
@@ -214,7 +235,168 @@ describe('startAccountLogin', () => {
     assert.equal(event.details.endpoint_source, 'db');
     assert.doesNotMatch(JSON.stringify(event.details), /base64|iVBOR/, 'image data never persisted');
 
-    await assert.rejects(startAccountLogin(ctx, ids.official, 'operator:ops'), (e: unknown) => e instanceof PolicyError && e.code === 'xhs_login_unavailable');
+    await assert.rejects(
+      startAccountLogin(ctx, ids.official, 'operator:ops'),
+      // The message an operator reads says what to click, never which process to start (src/server/humanize.ts).
+      (e: unknown) =>
+        e instanceof PolicyError &&
+        e.code === 'xhs_account_no_endpoint' &&
+        /还没有连接/.test(e.message) &&
+        !/xiaohongshu-mcp|xhs-mcp-fleet/.test(e.message),
+    );
+  });
+});
+
+describe('logoutAccount', () => {
+  it('deletes the instance session and leaves the account requires_auth', async () => {
+    const { ctx, ids, calls } = liveSetup({ [URL_WANG]: { loggedIn: true, nickname: '王销售', userId: 'xhs-user-wang' } });
+    setAccountEndpoint(ctx, ids.wang, URL_WANG, 'operator:ops');
+    assert.equal((await syncAccountAuth(ctx, ids.wang)).account.auth_state, 'authenticated');
+
+    const { account, detail } = await logoutAccount(ctx, ids.wang, 'operator:ops');
+    assert.equal(account.auth_state, 'requires_auth');
+    assert.match(detail, /已删除 cookies/);
+    assert.equal(account.auth_detail, detail);
+    assert.ok(calls.some((c) => c.tool === 'delete_cookies'));
+    assert.ok(ctx.audit.eventsFor('xhs_account', ids.wang).some((e) => e.action === 'account.logged_out'));
+
+    // The session really is gone: the next probe says so instead of reusing what we believed a moment ago.
+    assert.equal((await syncAccountAuth(ctx, ids.wang)).status, 'REQUIRES_AUTH');
+  });
+
+  it('is refused for an account without its own instance, and by providers without a login session', async () => {
+    const { ctx, ids } = liveSetup({});
+    await assert.rejects(logoutAccount(ctx, ids.official, 'operator:ops'), (e: unknown) => e instanceof PolicyError && e.code === 'xhs_account_no_endpoint');
+    const sim = createTestContext();
+    const summary = loadDealerFixture(sim);
+    await assert.rejects(
+      logoutAccount(sim, accountIdByPlatformId(summary, 'xhs-hz-official'), 'operator:ops'),
+      (e: unknown) => e instanceof PolicyError && e.code === 'xhs_logout_not_applicable',
+    );
+  });
+});
+
+describe('startLoginWindow', () => {
+  it('opens the visible login window for the account’s local instance, audits it and reports the job', async () => {
+    const ctx = createTestContext();
+    const summary = loadDealerFixture(ctx);
+    const i3 = accountIdByPlatformId(summary, 'xhs-hz-i3');
+    const dir = mkdtempSync(join(tmpdir(), 'xhs-window-'));
+    const helper = join(dir, 'helper');
+    writeFileSync(helper, '#!/bin/sh\n');
+    chmodSync(helper, 0o755);
+    mkdirSync(join(dir, 'fleet', 'xhs-hz-i3'), { recursive: true });
+    const cookiePaths: string[] = [];
+    const net = fleetNetwork({ 'http://127.0.0.1:18064/mcp': { loggedIn: false } });
+    ctx.xhs = new McpXhsProvider(
+      ctx.clock,
+      { account_endpoints: { 'xhs-hz-i3': { url: 'http://127.0.0.1:18064/mcp' } }, visible_login: { helper_path: helper, data_dir: join(dir, 'fleet') } },
+      {
+        fetchImpl: net.fetchImpl,
+        resolveAccount: (id) => ctx.db.table('xhs_accounts').get(id)?.platform_account_id ?? null,
+        runVisibleLogin: async (req) => {
+          cookiePaths.push(req.cookiesPath);
+          return { ok: true, detail: 'LOGIN_OK: logged in' };
+        },
+      },
+    );
+    assert.ok(getAccountSessions(ctx, dealerIdByKey(summary, 'hz-bmw')).every((s) => s.provider.login_window === true));
+    const job = await startLoginWindow(ctx, i3, 'operator:ops');
+    assert.equal(job.instance, 'xhs-hz-i3');
+    assert.deepEqual(cookiePaths, [join(dir, 'fleet', 'xhs-hz-i3', 'cookies.json')]);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(loginWindowStatus(ctx, i3)?.state, 'succeeded');
+    const event = ctx.audit.eventsFor('xhs_account', i3).find((e) => e.action === 'account.login_window_opened');
+    assert.equal(event?.details.instance, 'xhs-hz-i3');
+  });
+
+  it('is refused with a clear policy error when no login window is configured', async () => {
+    const { ctx, ids } = liveSetup({});
+    await assert.rejects(startLoginWindow(ctx, ids.i3, 'operator:ops'), (e: unknown) => e instanceof PolicyError && e.code === 'xhs_login_window_not_configured');
+    assert.equal(loginWindowStatus(ctx, ids.i3), null);
+    const sim = createTestContext();
+    loadDealerFixture(sim);
+    sim.xhs = SimulationXhsProvider.fromFile(sim.clock);
+    await assert.rejects(startLoginWindow(sim, null, 'operator:ops'), (e: unknown) => e instanceof PolicyError && e.code === 'xhs_login_window_not_configured');
+  });
+});
+
+describe('startAccountInstance', () => {
+  /** A dealer whose own host runs the instances: binary + state dir + token, nothing pinned by env. */
+  function localHost(): { ctx: TestContext; ids: Record<string, string>; dealerId: string; specs: LocalInstanceSpec[]; dataDir: string } {
+    const ctx = createTestContext();
+    const summary = loadDealerFixture(ctx);
+    const dir = mkdtempSync(join(tmpdir(), 'xhs-add-account-'));
+    const binary = join(dir, 'xiaohongshu-mcp');
+    writeFileSync(binary, '#!/bin/sh\n');
+    chmodSync(binary, 0o755);
+    const dataDir = join(dir, 'fleet');
+    mkdirSync(dataDir, { recursive: true });
+    const specs: LocalInstanceSpec[] = [];
+    const net = fleetNetwork({});
+    ctx.xhs = new McpXhsProvider(
+      ctx.clock,
+      { account_endpoints: {}, local_instances: { binary_path: binary, data_dir: dataDir, bind: '127.0.0.1', base_port: 18060, token: 'fleet-token' } },
+      {
+        fetchImpl: net.fetchImpl,
+        resolveAccount: (id) => ctx.db.table('xhs_accounts').get(id)?.platform_account_id ?? null,
+        resolveEndpoint: (id) => {
+          const url = ctx.db.table('xhs_accounts').get(id)?.mcp_endpoint_url;
+          return url ? { url, token: 'fleet-token' } : null;
+        },
+        startLocalInstance: (spec) => {
+          specs.push(spec);
+          return Promise.resolve({ ok: true, pid: 3131, detail: `实例已在 ${spec.bind}:${spec.port} 启动` });
+        },
+        probePort: (_bind, port) => Promise.resolve(port !== 18060),
+      },
+    );
+    const ids = {
+      official: accountIdByPlatformId(summary, 'xhs-hz-official'),
+      wang: accountIdByPlatformId(summary, 'xhs-hz-sales-wang'),
+    };
+    return { ctx, ids, dealerId: dealerIdByKey(summary, 'hz-bmw'), specs, dataDir };
+  }
+
+  it('starts the account’s own instance, binds it and leaves the login to a human', async () => {
+    const { ctx, ids, dealerId, specs, dataDir } = localHost();
+    assert.ok(getAccountSessions(ctx, dealerId).every((s) => s.provider.local_instances === true));
+
+    const { account, instance } = await startAccountInstance(ctx, ids.official, 'operator:ops');
+    assert.equal(instance.url, 'http://127.0.0.1:18061/mcp');
+    assert.equal(instance.started, true);
+    assert.equal(account.mcp_endpoint_url, 'http://127.0.0.1:18061/mcp', 'the account is bound to the instance that was just started');
+    assert.equal(specs[0]?.instanceDir, join(dataDir, 'xhs-hz-official'), 'its own cookies directory');
+    assert.equal(specs[0]?.token, 'fleet-token');
+    assert.equal(account.auth_state, 'unknown', 'a new instance is a new session: login is not assumed');
+    const started = ctx.audit.eventsFor('xhs_account', ids.official).find((e) => e.action === 'account.instance_started');
+    assert.equal(started?.details.port, 18061);
+    assert.equal(started?.details.reused, false);
+
+    // A second account gets its own instance on its own port, never the first one's.
+    const second = await startAccountInstance(ctx, ids.wang, 'operator:ops');
+    assert.equal(second.instance.port, 18062);
+    assert.equal(second.account.mcp_endpoint_url, 'http://127.0.0.1:18062/mcp');
+    const sessions = getAccountSessions(ctx, dealerId);
+    assert.equal(sessions.find((s) => s.account_id === ids.official)?.endpoint.url, 'http://127.0.0.1:18061/mcp');
+    assert.equal(sessions.find((s) => s.account_id === ids.wang)?.endpoint.url, 'http://127.0.0.1:18062/mcp');
+  });
+
+  it('says where to start the instance when this host does not run them', async () => {
+    const { ctx, ids } = liveSetup({});
+    await assert.rejects(
+      startAccountInstance(ctx, ids.official, 'operator:ops'),
+      (e: unknown) =>
+        e instanceof PolicyError &&
+        e.code === 'xhs_local_instance_not_configured' &&
+        /一键连接账号|账号服务/.test(e.message) &&
+        !/xiaohongshu-mcp|xhs-mcp-fleet|XHS_MCP/.test(e.message),
+    );
+    assert.equal(ctx.db.table('xhs_accounts').get(ids.official)?.mcp_endpoint_url ?? null, null, 'nothing was bound');
+    const sim = createTestContext();
+    const summary = loadDealerFixture(sim);
+    sim.xhs = SimulationXhsProvider.fromFile(sim.clock);
+    assert.ok(getAccountSessions(sim, dealerIdByKey(summary, 'hz-bmw')).every((s) => s.provider.local_instances === false));
   });
 });
 

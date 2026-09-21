@@ -184,9 +184,38 @@ export function toStructuredOutputSchema(schema: JsonObject): JsonObject {
     const type = node.type;
     const isObjectNode = type === 'object' || (Array.isArray(type) && type.includes('object')) || isObject(node.properties);
     if (isObjectNode) out.additionalProperties = false;
-    return out;
+    return splitTypedEnum(out);
   };
   return convert(schema) as JsonObject;
+}
+
+const ENUM_VALUE_MATCHES: Record<string, (v: unknown) => boolean> = {
+  string: (v) => typeof v === 'string',
+  number: (v) => typeof v === 'number',
+  integer: (v) => Number.isInteger(v),
+  boolean: (v) => typeof v === 'boolean',
+  null: (v) => v === null,
+};
+
+/**
+ * Structured outputs reject `enum` next to a union `type` ("Enum value 'x' does not match declared type
+ * ['string','null']"): rewrite `{type: [A, 'null'], enum}` as `anyOf: [{type: A, enum: <A values>}, {type: 'null'}]`.
+ */
+function splitTypedEnum(node: JsonObject): JsonObject {
+  if (!Array.isArray(node.type) || !Array.isArray(node.enum)) return node;
+  const { type: types, enum: values, ...rest } = node as JsonObject & { type: unknown[]; enum: unknown[] };
+  const branches: JsonObject[] = [];
+  for (const t of types) {
+    if (typeof t !== 'string') continue;
+    if (t === 'null') {
+      branches.push({ type: 'null' });
+      continue;
+    }
+    const matches = ENUM_VALUE_MATCHES[t];
+    const own = matches ? values.filter(matches) : [];
+    if (own.length) branches.push({ type: t, enum: own });
+  }
+  return { ...rest, anyOf: branches };
 }
 
 /**

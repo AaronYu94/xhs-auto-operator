@@ -224,8 +224,8 @@ describe('analytics: lead inbox', () => {
     assert.equal(card.lead_id, H.id);
     assert.equal(card.original_signal, SIGNAL_H);
     assert.equal(card.original_signal_id, primarySig.id);
-    assert.deepEqual(card.source, { type: 'comment', post_title: '宝马i3现在值得买吗？', url: NOTE_URL, signal_at: '2026-09-11T08:00:00.000Z' });
-    assert.deepEqual(card.assigned_account, { id: wang, nickname: '销售小王·杭州宝马', account_type: 'salesperson' });
+    assert.deepEqual(card.source, { type: 'comment', post_title: '宝马i3现在值得买吗？', url: NOTE_URL, signal_at: '2026-09-11T08:00:00.000Z', query_text: null, search_run_id: null, workflow_run_id: null, searched_at: null });
+    assert.deepEqual(card.assigned_account, { id: wang, nickname: '销售小王·杭州宝马', account_type: 'salesperson', avatar_url: null });
     assert.equal(card.score, 96);
     assert.equal(card.tier, 'immediate');
     assert.equal(card.tier_label, '立即跟进');
@@ -265,7 +265,7 @@ describe('analytics: lead inbox', () => {
     assert.equal(m.next_action, '分配最合适的账号');
     const n = byId.get(N.id)!;
     assert.deepEqual([n.model_label, n.location_label, n.purchase_stage, n.purchase_stage_label], ['BMW', 'IP属地：上海', null, null]);
-    assert.deepEqual(n.source, { type: 'post', post_title: '25万买什么车', url: 'https://www.xiaohongshu.com/explore/note-q-003', signal_at: '2026-09-10T08:00:00.000Z' });
+    assert.deepEqual(n.source, { type: 'post', post_title: '25万买什么车', url: 'https://www.xiaohongshu.com/explore/note-q-003', signal_at: '2026-09-10T08:00:00.000Z', query_text: null, search_run_id: null, workflow_run_id: null, searched_at: null });
     assert.deepEqual(n.intent_chips, []);
     const l = byId.get(L.id)!;
     assert.deepEqual([l.suppressed, l.tier_label, l.stage, l.next_action], [true, '候选', 'LOST', '勿扰：已停止所有触达']);
@@ -276,7 +276,7 @@ describe('analytics: lead inbox', () => {
     const bare = seedLead(ctx, { dealer_id: hz, platform_user_id: 'u-import-001' });
     const card = buildLeadCard(ctx, bare);
     assert.deepEqual([card.original_signal, card.original_signal_id, card.model_label, card.location_label], ['', null, '车型未明确', '地区未知']);
-    assert.deepEqual(card.source, { type: null, post_title: null, url: null, signal_at: null });
+    assert.deepEqual(card.source, { type: null, post_title: null, url: null, signal_at: null, query_text: null, search_run_id: null, workflow_run_id: null, searched_at: null });
   });
 
   it('filters by account, brand, model, location, source, stage and signal window', () => {

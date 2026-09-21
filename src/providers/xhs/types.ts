@@ -1,4 +1,4 @@
-import type { CapabilityStatus, XhsCapability } from '../../core/types.ts';
+import type { CapabilityStatus, NotificationKind, NotificationTab, XhsCapability, XhsOwnProfile } from '../../core/types.ts';
 
 /**
  * Xiaohongshu integration layer (spec §23).
@@ -37,6 +37,8 @@ export interface XhsAuthor {
   platform_user_id: string | null;
   nickname: string | null;
   profile_url?: string | null;
+  /** public avatar URL as the platform returned it (empty strings are normalised to null) */
+  avatar_url?: string | null;
 }
 
 export interface XhsNoteRef {
@@ -48,6 +50,8 @@ export interface XhsNoteSummary extends XhsNoteRef {
   title: string;
   author: XhsAuthor;
   like_count: number;
+  /** comment count shown on the search card, when the platform reports it (lets callers read discussions first) */
+  comment_count?: number | null;
   url?: string | null;
   published_at?: string | null;
   raw?: Record<string, unknown>;
@@ -59,6 +63,11 @@ export interface XhsNoteDetail extends XhsNoteSummary {
   ip_location: string | null;
   comment_count: number;
   collect_count: number;
+}
+
+export interface XhsNoteWithComments {
+  note: XhsNoteDetail;
+  comments: XhsComment[];
 }
 
 export interface XhsComment {
@@ -77,6 +86,7 @@ export interface XhsUserProfile {
   platform_user_id: string;
   nickname: string;
   profile_url: string | null;
+  avatar_url: string | null;
   bio: string | null;
   ip_location: string | null;
   follower_count: number | null;
@@ -101,6 +111,11 @@ export interface XhsPublishDraft {
   body: string;
   tags: string[];
   images?: string[]; // local paths or URLs
+  /**
+   * Publish a video note instead of an image note: ONE absolute path to a video file on the host that runs this
+   * account's session (Xiaohongshu's video publisher takes a local file, not a URL, and not several).
+   */
+  video?: string | null;
 }
 
 export interface XhsPublishResult {
@@ -128,6 +143,51 @@ export interface XhsInboundMessage {
 
 export interface XhsSendResult {
   provider_message_id: string;
+  /** the recipient's avatar as their conversation showed it, when the channel could see it */
+  peer_avatar_url?: string | null;
+}
+
+/**
+ * One row of the platform's notification centre, as the provider read it. The ids carried here are exactly what the
+ * follow-up actions need: `comment_id` for a reply or a like, `note_id` + `note_xsec_token` to open the note,
+ * `from_xsec_token` to open the sender's profile.
+ */
+export interface XhsNotificationItem {
+  provider_notification_id: string;
+  tab: NotificationTab;
+  kind: NotificationKind;
+  /** the platform's own type string, kept verbatim for diagnosing new kinds (`liked/item`, `follow/you`, …) */
+  raw_type: string;
+  title: string;
+  occurred_at: string;
+  from_user_id: string;
+  from_nickname: string | null;
+  from_xsec_token: string | null;
+  comment_id: string | null;
+  comment_text: string | null;
+  comment_liked: boolean;
+  note_id: string | null;
+  note_xsec_token: string | null;
+  note_title: string | null;
+}
+
+export interface XhsNotificationPage {
+  tab: NotificationTab;
+  /** entries the platform hid from us (deleted comment, note under review) — the list is shorter than reality */
+  filtered: number;
+  items: XhsNotificationItem[];
+}
+
+export interface XhsUnreadCounts {
+  mentions: number;
+  likes: number;
+  connections: number;
+  total: number;
+}
+
+export interface XhsNotificationOptions {
+  tab?: NotificationTab;
+  limit?: number;
 }
 
 export interface XhsProvider {
@@ -140,6 +200,11 @@ export interface XhsProvider {
   searchNotes(query: string, opts?: XhsSearchOptions, accountId?: string | null): Promise<ProviderResult<XhsNoteSummary[]>>;
   getNote(ref: XhsNoteRef, accountId?: string | null): Promise<ProviderResult<XhsNoteDetail>>;
   getComments(ref: XhsNoteRef, opts?: XhsCommentOptions, accountId?: string | null): Promise<ProviderResult<XhsComment[]>>;
+  /**
+   * Optional: a note's detail and its comments from ONE page load (a live provider opens a browser page per call, so
+   * getNote + getComments reads the same page twice). Callers fall back to getNote + getComments when absent.
+   */
+  getNoteWithComments?(ref: XhsNoteRef, opts?: XhsCommentOptions, accountId?: string | null): Promise<ProviderResult<XhsNoteWithComments>>;
   /** xiaohongshu-mcp's user_profile requires the xsec_token observed alongside the user (note/comment context). */
   getUserProfile(ref: XhsUserRef, accountId?: string | null): Promise<ProviderResult<XhsUserProfile>>;
 
@@ -149,6 +214,17 @@ export interface XhsProvider {
 
   /** Public reply to a comment on a note (engagement on our own notes). */
   replyToComment(accountId: string, ref: XhsCommentReplyRef, text: string): Promise<ProviderResult<XhsSendResult>>;
+
+  /**
+   * The platform's notification centre (optional: only providers that can read it implement these).
+   * Reading a tab clears its unread badge on Xiaohongshu — `getUnreadCounts` is the one that does not.
+   */
+  getUnreadCounts?(accountId: string): Promise<ProviderResult<XhsUnreadCounts>>;
+  listNotifications?(accountId: string, opts?: XhsNotificationOptions): Promise<ProviderResult<XhsNotificationPage>>;
+  /** Public reply to a comment straight from the notification (no note id needed). */
+  replyToNotification?(accountId: string, commentId: string, text: string): Promise<ProviderResult<XhsSendResult>>;
+  /** Like (or unlike) the comment a notification points at. */
+  likeNotificationComment?(accountId: string, commentId: string, unlike?: boolean): Promise<ProviderResult<{ liked: boolean }>>;
 
   listInboundMessages(accountId: string, since: string | null): Promise<ProviderResult<XhsInboundMessage[]>>;
   sendMessage(accountId: string, toPlatformUserId: string, text: string): Promise<ProviderResult<XhsSendResult>>;
@@ -170,6 +246,8 @@ export interface XhsLoginStatus {
   platform_user_id: string | null;
   /** 小红书号 (redId) of the logged-in user when readable */
   red_id: string | null;
+  /** the session's own profile (get_my_profile) when it was read; null when logged out / unreadable */
+  profile: XhsOwnProfile | null;
   detail: string;
   /** which instance answered, e.g. 'account xhs-hz-i3' / 'research' (no URL token) */
   endpoint_label: string;
@@ -188,6 +266,65 @@ export interface XhsAuthApi {
   status(accountId: string | null): Promise<ProviderResult<XhsLoginStatus>>;
   /** Request a login QR code on the account's instance (replaces any pending QR login there). */
   loginQrcode(accountId: string | null): Promise<ProviderResult<XhsLoginQrcode>>;
+  /**
+   * Log the instance's session out (delete its cookies). Present only where the provider can do it; the account then
+   * needs a new QR / window login before anything else works.
+   */
+  logout?(accountId: string | null): Promise<ProviderResult<{ detail: string }>>;
+  /**
+   * Log in through a visible browser window on this host (Xiaohongshu rejects QR logins scanned from a headless
+   * browser). Present only when a login helper is configured for local instances.
+   */
+  readonly visibleLogin?: XhsVisibleLoginApi;
+  /**
+   * Start an account's own xiaohongshu-mcp instance on this host. Present only when this host was configured to run
+   * instances itself (binary + state dir + token, loopback only).
+   */
+  readonly localInstance?: XhsLocalInstanceApi;
+}
+
+export const VISIBLE_LOGIN_STATES = ['running', 'succeeded', 'failed'] as const;
+export type VisibleLoginState = (typeof VISIBLE_LOGIN_STATES)[number];
+
+export interface XhsVisibleLoginJob {
+  state: VisibleLoginState;
+  /** instance whose cookies the window writes: 'research' or the account's platform account id */
+  instance: string;
+  started_at: string;
+  finished_at: string | null;
+  /** the helper gives up at this time */
+  expires_at: string;
+  detail: string;
+}
+
+/** A xiaohongshu-mcp instance this host runs for one account (started by the console or by the fleet script). */
+export interface XhsLocalInstance {
+  /** instance name = state directory under the data dir = the account's platform account id */
+  instance: string;
+  /** the instance's endpoint, ready to bind to the account (never contains a token) */
+  url: string;
+  port: number;
+  /** pid on this host when known */
+  pid: number | null;
+  /** false = an instance was already running for this account and was reused */
+  started: boolean;
+  detail: string;
+}
+
+export interface XhsLocalInstanceApi {
+  /**
+   * Start (or reuse) this account's own instance on this host and report the endpoint it listens on. Idempotent:
+   * a healthy instance is reused, never duplicated. `reserved_ports` are ports other accounts are bound to,
+   * `known_port` the port this account is already bound to (an instance started by the fleet script).
+   */
+  start(accountId: string, opts?: { reserved_ports?: number[]; known_port?: number }): Promise<ProviderResult<XhsLocalInstance>>;
+}
+
+export interface XhsVisibleLoginApi {
+  /** Open the login window for the account's instance (accountId null = research); a running job is returned as is. */
+  start(accountId: string | null): Promise<ProviderResult<XhsVisibleLoginJob>>;
+  /** The latest job for that instance in this process, or null. */
+  status(accountId: string | null): XhsVisibleLoginJob | null;
 }
 
 export interface XhsEndpointInfo {

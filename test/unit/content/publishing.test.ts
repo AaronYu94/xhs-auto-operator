@@ -13,6 +13,7 @@ import {
   recordPostMetrics,
   requeuePost,
   setPostImages,
+  setPostVideo,
 } from '../../../src/skills/content/publishing/index.ts';
 import { insertPost, setupContent, withOverrides } from './helpers.ts';
 
@@ -37,6 +38,38 @@ describe('publishing', () => {
     assert.deepEqual(res.ready_to_publish.map((p) => p.id), [post.id]);
     assert.equal(res.ready_to_publish[0].status, 'READY_TO_PUBLISH');
     assert.deepEqual(readyReason(s, post.id), [NO_IMAGE_REASON]);
+  });
+
+  it('a video note is published through the video publisher with no images', async () => {
+    const s = setupContent({ publish: true });
+    const post = await scheduledPost(s);
+    setPostVideo(s.ctx, post.id, '/srv/videos/提车日.mp4', 'operator:li');
+    const drafts: { images?: string[]; video?: string | null }[] = [];
+    s.ctx.xhs = withOverrides(s.ctx.xhs, {
+      publishNote: async (_accountId, draft) => {
+        drafts.push({ images: draft.images, video: draft.video });
+        return { ok: true, data: { platform_note_id: 'sim-video-1', url: null } };
+      },
+    });
+    const res = await publishDuePosts(s.ctx, s.dealerId);
+    assert.deepEqual(res.published.map((p) => p.id), [post.id]);
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].video, '/srv/videos/提车日.mp4');
+    assert.deepEqual(drafts[0].images, [], 'a video note carries no images');
+    assert.equal(
+      s.ctx.audit.eventsFor('post', post.id).find((e) => e.action === 'post.published')?.details.video,
+      '/srv/videos/提车日.mp4',
+    );
+  });
+
+  it('a video must be one absolute local path with a video extension', () => {
+    const s = setupContent({ publish: true });
+    const post = insertPost(s.ctx, { dealer_id: s.dealerId, account_id: s.acc('xhs-hz-sales-wang'), pillar: 'model_review', model: 'X3', slot_date: '2026-09-11' });
+    assert.throws(() => setPostVideo(s.ctx, post.id, 'https://example.com/a.mp4', 'operator:li'), ValidationError);
+    assert.throws(() => setPostVideo(s.ctx, post.id, 'videos/a.mp4', 'operator:li'), ValidationError);
+    assert.throws(() => setPostVideo(s.ctx, post.id, '/srv/videos/a.txt', 'operator:li'), ValidationError);
+    assert.equal(setPostVideo(s.ctx, post.id, '/srv/videos/a.mp4', 'operator:li').video, '/srv/videos/a.mp4');
+    assert.equal(setPostVideo(s.ctx, post.id, '', 'operator:li').video, null, 'an empty value clears it');
   });
 
   it('publish capability unavailable → READY_TO_PUBLISH citing the capability status', async () => {

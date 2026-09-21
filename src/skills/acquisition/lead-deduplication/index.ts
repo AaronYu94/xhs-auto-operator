@@ -119,6 +119,8 @@ export interface LeadIdentity {
   platform_user_id: string;
   username: string;
   profile_url?: string | null;
+  /** public avatar observed with the signal (posts carry it; comments usually do not) */
+  avatar_url?: string | null;
 }
 
 export interface UpsertLeadInput {
@@ -601,6 +603,7 @@ const upsertShape = v.object({
     platform_user_id: nonBlank(200),
     username: v.string({ max: 200 }),
     profile_url: v.optional(v.nullable(v.string({ max: 2000 }))),
+    avatar_url: v.optional(v.nullable(v.string({ max: 2000 }))),
   }),
   signal: v.object({
     source_type: v.literal(SIGNAL_SOURCE_TYPES),
@@ -626,6 +629,7 @@ export const upsertLeadInputValidator: Validator<UpsertLeadInput> = (value, path
       platform_user_id: raw.identity.platform_user_id,
       username: raw.identity.username,
       profile_url: raw.identity.profile_url ?? null,
+      avatar_url: raw.identity.avatar_url ?? null,
     },
     signal: {
       source_type: raw.signal.source_type,
@@ -801,12 +805,16 @@ function topEvidenceLabels(evidence: readonly Evidence[], limit = 3): string[] {
   return out;
 }
 
+/**
+ * What this lead is worth: the price of the trim they asked about, from the store's own line-up (车型库). A trim that
+ * was archived is not in the line-up any more, so it never sets a lead's value — the model's live entry trim does.
+ */
 function estimateValue(ctx: AppContext, groupId: string, intent: AutomotiveIntent, fallback: number): number {
   if (!intent.model) return fallback;
   const vehicle =
     resolveVehicle(ctx, groupId, { brand: intent.brand, model: intent.model, trim: intent.trim }) ??
     (intent.trim ? resolveVehicle(ctx, groupId, { brand: intent.brand, model: intent.model }) : null);
-  return vehicle ? vehicle.msrp : fallback;
+  return vehicle ? (vehicle.current_price ?? vehicle.msrp) : fallback;
 }
 
 interface DealerMatch {
@@ -907,6 +915,7 @@ export function upsertLeadFromSignal(ctx: AppContext, input: UpsertLeadInput): U
         platform_user_id: userId,
         username: identity.username.trim() || userId,
         profile_url: identity.profile_url?.trim() || null,
+        avatar_url: identity.avatar_url?.trim() || null,
         stage: 'DISCOVERED',
         score: 0,
         tier: 'none',
@@ -1057,6 +1066,8 @@ export function upsertLeadFromSignal(ctx: AppContext, input: UpsertLeadInput): U
     if (username && username !== lead.username) patch.username = username;
     const profileUrl = identity.profile_url?.trim();
     if (profileUrl && profileUrl !== lead.profile_url) patch.profile_url = profileUrl;
+    const avatar = identity.avatar_url?.trim();
+    if (avatar && avatar !== lead.avatar_url) patch.avatar_url = avatar;
     if (dealerMatch?.moved) patch.dealer_id = dealer.id;
     lead = leads.update(lead.id, patch);
 

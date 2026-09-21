@@ -20,7 +20,13 @@ import type {
 import { UnavailableXhsProvider } from '../../../src/providers/xhs/unavailable.ts';
 import { findLeadByIdentity } from '../../../src/skills/acquisition/lead-deduplication/index.ts';
 import {
+  MAX_CONSECUTIVE_TRANSIENT_FAILURES,
   NO_QUERIES_REASON,
+  LEAD_FRESH_DAYS,
+  REFETCH_AFTER_MS,
+  SEARCH_RESULTS_CONSIDERED,
+  SEARCH_SORT,
+  selectNotesToRead,
   ingestPublicContent,
   runDiscovery,
   runSearchQuery,
@@ -61,7 +67,7 @@ function addQuery(ctx: TestContext, dealerId: string, text: string, priority = 0
   });
 }
 
-type Override = Partial<Pick<XhsProvider, 'capabilities' | 'searchNotes' | 'getNote' | 'getComments'>>;
+type Override = Partial<Pick<XhsProvider, 'capabilities' | 'searchNotes' | 'getNote' | 'getComments' | 'getNoteWithComments'>>;
 
 /** Delegates to an inner provider with selected methods replaced. */
 class DelegatingProvider implements XhsProvider {
@@ -69,9 +75,12 @@ class DelegatingProvider implements XhsProvider {
   readonly mode;
   private readonly inner: XhsProvider;
   private readonly o: Override;
+  /** present only when overridden, like a provider without the optional single-load read */
+  getNoteWithComments?: XhsProvider['getNoteWithComments'];
   constructor(inner: XhsProvider, o: Override, name = 'delegating') {
     this.inner = inner;
     this.o = o;
+    if (o.getNoteWithComments) this.getNoteWithComments = o.getNoteWithComments;
     this.name = name;
     this.mode = inner.mode;
   }
@@ -113,10 +122,10 @@ function reportWith(ctx: TestContext, provider: XhsProvider, status: CapabilityS
 
 /** Expected users_evaluated computed independently from provider output. */
 async function expectedUsers(provider: XhsProvider, query: string, managed: Set<string>): Promise<number> {
-  const res = await provider.searchNotes(query, { sort: 'latest', limit: 10, published_within_days: 90 }, null);
+  const res = await provider.searchNotes(query, { sort: SEARCH_SORT, limit: SEARCH_RESULTS_CONSIDERED, published_within_days: LEAD_FRESH_DAYS }, null);
   assert.ok(res.ok);
   const users = new Set<string>();
-  for (const s of res.data) {
+  for (const s of selectNotesToRead(res.data, 10).notes) {
     const d = await provider.getNote(s, null);
     assert.ok(d.ok);
     if (d.data.author.platform_user_id && !managed.has(d.data.author.platform_user_id)) users.add(d.data.author.platform_user_id);
@@ -167,9 +176,9 @@ describe('lead-discovery: search run over the simulation corpus', () => {
     assert.equal(findLeadByIdentity(ctx, groupId, 'xhs-hz-i3'), undefined, 'managed account author is never a lead');
 
     // counters
-    const search = await ctx.xhs.searchNotes('宝马i3', { sort: 'latest', limit: 10, published_within_days: 90 }, null);
+    const search = await ctx.xhs.searchNotes('宝马i3', { sort: SEARCH_SORT, limit: SEARCH_RESULTS_CONSIDERED, published_within_days: LEAD_FRESH_DAYS }, null);
     assert.ok(search.ok);
-    assert.equal(run.posts_discovered, search.data.length);
+    assert.equal(run.posts_discovered, selectNotesToRead(search.data, 10).notes.length);
     assert.equal(run.posts_new, ctx.db.table('public_posts').count({ first_search_run_id: run.id }));
     assert.equal(run.comments_scanned, ctx.db.table('public_comments').count({ first_search_run_id: run.id }));
     const managed = new Set(ctx.db.table('xhs_accounts').findMany({ group_id: groupId }).map((a) => a.platform_account_id ?? ''));
@@ -308,6 +317,168 @@ describe('lead-discovery: provider unavailable / login required', () => {
     assert.equal(result.blocked, null);
     assert.equal(result.runs.length, 2);
     assert.ok(result.runs.every((r) => r.status === 'FAILED' && /REQUIRES_REVIEW/.test(r.error ?? '')));
+  });
+
+  it('a transient search failure (tool timeout) fails only its query; the batch continues', async () => {
+    const timeout: ProviderResult<XhsNoteSummary[]> = {
+      ok: false,
+      status: 'UNAVAILABLE',
+      reason: 'xiaohongshu-mcp tool failed (account a): 工具 search_feeds 执行时发生内部错误: context deadline exceeded',
+      retryable: true,
+    };
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      let calls = 0;
+      return new DelegatingProvider(sim, {
+        // both the first attempt and its retry fail: the query fails, the batch continues
+        searchNotes: async (q, o, a) => (++calls <= 2 ? timeout : sim.searchNotes(q, o, a)),
+      });
+    });
+    addQuery(ctx, hz, '宝马i3', 0.9);
+    addQuery(ctx, hz, '宝马X3', 0.8);
+    const result = await runDiscovery(ctx, { dealer_id: hz });
+    assert.equal(result.blocked, null);
+    assert.deepEqual(
+      result.runs.map((r) => r.status),
+      ['FAILED', 'SUCCEEDED'],
+    );
+    assert.match(result.runs[0].error ?? '', /context deadline exceeded/);
+  });
+
+  it(`${MAX_CONSECUTIVE_TRANSIENT_FAILURES} transient failures in a row block the rest (no hammering an unhealthy instance)`, async () => {
+    let searches = 0;
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, {
+        searchNotes: async (): Promise<ProviderResult<XhsNoteSummary[]>> => {
+          searches++;
+          return { ok: false, status: 'UNAVAILABLE', reason: 'xiaohongshu-mcp timeout (account a): request timed out', retryable: true };
+        },
+      });
+    });
+    for (const [i, text] of ['宝马i3', '宝马X3', '宝马5系', '宝马X5'].entries()) addQuery(ctx, hz, text, 0.9 - i * 0.1);
+    const result = await runDiscovery(ctx, { dealer_id: hz });
+    assert.equal(searches, MAX_CONSECUTIVE_TRANSIENT_FAILURES * 2, 'each query is attempted twice before it counts as failed');
+    assert.equal(result.runs.length, MAX_CONSECUTIVE_TRANSIENT_FAILURES);
+    assert.ok(result.runs.every((r) => r.status === 'FAILED'));
+    assert.ok(result.blocked);
+    assert.equal(result.blocked.status, 'UNAVAILABLE');
+    assert.match(result.blocked.reason, /^连续 2 个搜索词都失败了，其余搜索词本次暂停：UNAVAILABLE: xiaohongshu-mcp timeout/);
+    assert.equal(result.blocked.query_id, result.runs.at(-1)?.query_id);
+  });
+
+  it('a non-retryable UNAVAILABLE search still blocks at once', async () => {
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, {
+        searchNotes: async (): Promise<ProviderResult<XhsNoteSummary[]>> => ({ ok: false, status: 'UNAVAILABLE', reason: 'rejected the request: check AUTH_TOKEN' }),
+      });
+    });
+    addQuery(ctx, hz, '宝马i3', 0.9);
+    addQuery(ctx, hz, '宝马X3', 0.8);
+    const result = await runDiscovery(ctx, { dealer_id: hz });
+    assert.equal(result.runs.length, 1);
+    assert.equal(result.runs[0].status, 'UNAVAILABLE');
+    assert.match(result.blocked?.reason ?? '', /AUTH_TOKEN/);
+  });
+
+  it('reads each note with ONE provider call when the provider supports detail + comments together', async () => {
+    const counts = { combined: 0, separate: 0 };
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, {
+        getNote: async (r, a) => (counts.separate++, sim.getNote(r, a)),
+        getComments: async (r, o, a) => (counts.separate++, sim.getComments(r, o, a)),
+        getNoteWithComments: async (ref, opts, a) => {
+          counts.combined++;
+          const note = await sim.getNote(ref, a);
+          if (!note.ok) return note;
+          const comments = await sim.getComments(ref, opts, a);
+          return comments.ok ? { ok: true, data: { note: note.data, comments: comments.data } } : comments;
+        },
+      });
+    });
+    const run = await runSearchQuery(ctx, { dealer_id: hz, query_id: addQuery(ctx, hz, '宝马i3').id });
+    assert.equal(run.status, 'SUCCEEDED', run.error ?? '');
+    assert.equal(counts.separate, 0);
+    assert.equal(counts.combined, run.posts_discovered);
+
+    const twoCalls = setup();
+    const baseline = await runSearchQuery(twoCalls.ctx, { dealer_id: twoCalls.hz, query_id: addQuery(twoCalls.ctx, twoCalls.hz, '宝马i3').id });
+    assert.deepEqual(
+      [run.posts_discovered, run.comments_scanned, run.users_evaluated, run.qualified],
+      [baseline.posts_discovered, baseline.comments_scanned, baseline.users_evaluated, baseline.qualified],
+      'same outcome as the two-call path',
+    );
+  });
+
+  it('notes read in the last 12 hours are not re-read (any query); after that they are', async () => {
+    let reads = 0;
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, { getNote: async (r, a) => (reads++, sim.getNote(r, a)) });
+    });
+    const q = addQuery(ctx, hz, '宝马i3');
+    const first = await runSearchQuery(ctx, { dealer_id: hz, query_id: q.id });
+    const firstReads = reads;
+    assert.ok(firstReads > 0 && first.status === 'SUCCEEDED');
+
+    ctx.clock.advance({ ms: REFETCH_AFTER_MS - 60_000 });
+    const second = await runSearchQuery(ctx, { dealer_id: hz, query_id: addQuery(ctx, hz, '宝马i3 价格', 0.5).id });
+    assert.equal(second.status, 'SUCCEEDED', 'nothing new to read is not a failure');
+    const event = ctx.db.table('audit_events').findOne({ action: 'search_run.completed', entity_id: second.id });
+    assert.equal(event?.details.notes_skipped_recent, second.posts_discovered - (reads - firstReads));
+
+    const again = await runSearchQuery(ctx, { dealer_id: hz, query_id: q.id });
+    const skipped = ctx.db.table('audit_events').findOne({ action: 'search_run.completed', entity_id: again.id });
+    assert.equal(skipped?.details.notes_skipped_recent, again.posts_discovered, 'the same query right after: every note skipped');
+
+    ctx.clock.advance({ ms: REFETCH_AFTER_MS + 1 });
+    const before = reads;
+    const later = await runSearchQuery(ctx, { dealer_id: hz, query_id: q.id });
+    assert.equal(reads - before, later.posts_discovered, 'read again once the 12 hours have passed');
+  });
+
+  it('reads discussions first: dealer-store notes are skipped, the rest most-commented first', () => {
+    const note = (id: string, nickname: string, comment_count: number | null) =>
+      ({ platform_post_id: id, xsec_token: 't', title: id, author: { platform_user_id: id, nickname }, like_count: 0, comment_count }) as XhsNoteSummary;
+    const results = [
+      note('promo', '小鹏汽车 | 小李', 1),
+      note('quiet', '路人甲', 2),
+      note('hot', '路人乙', 227),
+      note('unknown', '路人丙', null),
+      note('store', '小鹏汽车舟山某某汽车城销售服务中心', 40),
+      note('warm', '路人丁', 64),
+    ];
+    const { notes, skipped_seller } = selectNotesToRead(results, 3);
+    assert.deepEqual(notes.map((n) => n.platform_post_id), ['hot', 'warm', 'quiet']);
+    assert.equal(skipped_seller, 2);
+    assert.deepEqual(selectNotesToRead(results, 10).notes.map((n) => n.platform_post_id), ['hot', 'warm', 'quiet', 'unknown'], 'unknown counts last');
+  });
+
+  it('asks the provider for one results page in 综合 order', async () => {
+    let seen: XhsSearchOptions | undefined;
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, { searchNotes: async (q, o, a) => ((seen = o), sim.searchNotes(q, o, a)) });
+    });
+    await runSearchQuery(ctx, { dealer_id: hz, query_id: addQuery(ctx, hz, '宝马i3').id });
+    assert.equal(seen?.sort, 'general');
+    assert.equal(seen?.limit, SEARCH_RESULTS_CONSIDERED);
+  });
+
+  it('a transient search failure is retried once before the query fails', async () => {
+    let calls = 0;
+    const { ctx, hz } = setup((c) => {
+      const sim = SimulationXhsProvider.fromFile(c.clock);
+      return new DelegatingProvider(sim, {
+        searchNotes: async (q, o, a) =>
+          ++calls === 1 ? { ok: false, status: 'UNAVAILABLE', reason: 'xiaohongshu-mcp tool failed: 搜索Feeds失败: 筛选面板里没有「发布时间」这一组', retryable: true } : sim.searchNotes(q, o, a),
+      });
+    });
+    const run = await runSearchQuery(ctx, { dealer_id: hz, query_id: addQuery(ctx, hz, '宝马i3').id });
+    assert.equal(calls, 2);
+    assert.equal(run.status, 'SUCCEEDED', run.error ?? '');
   });
 
   it('no active queries → blocked with an actionable Chinese reason', async () => {

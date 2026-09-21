@@ -26,6 +26,8 @@ import type { AnalyticsFilters, LeadCard, LeadDetail, LeadSignalDetail } from '.
 
 export interface LeadInboxOptions {
   tier?: ScoreTier;
+  /** leave out closed leads (LOST / WON); ignored when `filters.stage` names a stage */
+  open_only?: boolean;
   /** default 50, max 500 */
   limit?: number;
   /** default 0 */
@@ -207,16 +209,45 @@ export function buildLeadCard(ctx: AppContext, lead: Lead): LeadCard {
       post_title: signal?.post_title ?? publicPost?.title ?? null,
       url: publicPost?.url ?? null,
       signal_at: signal?.signal_at ?? null,
+      ...searchOrigin(ctx, signal),
     },
     original_signal_id: signal?.id ?? null,
     original_signal: signal?.content ?? '',
     signal_count: lead.signal_count,
     last_signal_at: lead.last_signal_at,
-    assigned_account: owner ? { id: owner.id, nickname: owner.nickname, account_type: owner.account_type } : null,
+    avatar_url: lead.avatar_url,
+    assigned_account: owner
+      ? { id: owner.id, nickname: owner.nickname, account_type: owner.account_type, avatar_url: accountAvatar(ctx, owner.id) }
+      : null,
     stage: lead.stage,
     next_action: computeNextAction(ctx, lead),
     outreach_status: latestOutreach?.status ?? null,
     suppressed: lead.suppressed,
+  };
+}
+
+/** The managed account's own avatar, as the last live profile probe stored it (xhs_accounts.platform_profile). */
+function accountAvatar(ctx: AppContext, accountId: string): string | null {
+  const profile = ctx.db.table('xhs_accounts').get(accountId)?.platform_profile;
+  const url = profile && typeof profile === 'object' ? (profile as { avatar_url?: unknown }).avatar_url : null;
+  return typeof url === 'string' && url.trim() ? url.trim() : null;
+}
+
+/** The search that found a lead: its query text and the run it belonged to (every signal stores both). */
+function searchOrigin(
+  ctx: AppContext,
+  signal: LeadSignal | undefined,
+): { query_text: string | null; search_run_id: string | null; workflow_run_id: string | null; searched_at: string | null } {
+  const empty = { query_text: null, search_run_id: null, workflow_run_id: null, searched_at: null };
+  if (!signal) return empty;
+  const query = signal.query_id ? ctx.db.table('search_queries').get(signal.query_id) : undefined;
+  const run = signal.search_run_id ? ctx.db.table('search_runs').get(signal.search_run_id) : undefined;
+  if (!query && !run) return empty;
+  return {
+    query_text: query?.text ?? null,
+    search_run_id: run?.id ?? null,
+    workflow_run_id: run?.workflow_run_id ?? null,
+    searched_at: run?.started_at ?? null,
   };
 }
 
@@ -250,6 +281,7 @@ export function getLeadInbox(ctx: AppContext, f: AnalyticsFilters & LeadInboxOpt
   const paging = inboxPaging(f);
   const parts: SqlFragment[] = [leadScope(n, 'l')];
   if (paging.tier !== undefined) parts.push({ sql: 'l.tier = ?', params: [paging.tier] });
+  if (f.open_only === true && n.stage === undefined) parts.push({ sql: "l.stage NOT IN ('LOST', 'WON')", params: [] });
   if (n.from !== undefined) parts.push({ sql: 'l.last_signal_at >= ?', params: [n.from] });
   if (n.to !== undefined) parts.push({ sql: 'l.last_signal_at < ?', params: [n.to] });
   const where = joinAnd(parts);

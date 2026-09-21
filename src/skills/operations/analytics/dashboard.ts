@@ -121,6 +121,7 @@ export function getDashboard(ctx: AppContext, f: AnalyticsFilters = {}): Dashboa
   );
 
   // ── outreach ──────────────────────────────────────────────────────────────
+  // Drafts of closed leads (lost / won) need no action: they never count as something waiting for a human.
   const blockedSince = new Date(now.getTime() - BLOCKED_WINDOW_DAYS * 86_400_000).toISOString();
   const outreach = db.get(
     `SELECT SUM(CASE WHEN o.status IN ('READY_FOR_REVIEW', 'APPROVED') THEN 1 ELSE 0 END) AS ready,
@@ -128,7 +129,7 @@ export function getDashboard(ctx: AppContext, f: AnalyticsFilters = {}): Dashboa
             SUM(CASE WHEN o.status = 'APPROVED' AND o.capability_status <> 'AVAILABLE' THEN 1 ELSE 0 END) AS manual_send,
             SUM(CASE WHEN o.status = 'BLOCKED' AND o.updated_at >= ? THEN 1 ELSE 0 END) AS blocked
      FROM outreach o JOIN leads l ON l.id = o.lead_id
-     WHERE o.status IN ('READY_FOR_REVIEW', 'APPROVED', 'BLOCKED') AND ${leads.sql}`,
+     WHERE o.status IN ('READY_FOR_REVIEW', 'APPROVED', 'BLOCKED') AND l.stage NOT IN ('LOST', 'WON') AND ${leads.sql}`,
     blockedSince,
     ...leads.params,
   );

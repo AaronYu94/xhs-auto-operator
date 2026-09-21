@@ -9,6 +9,7 @@ import {
   approveOutreach,
   cancelOutreach,
   composeOutreachMessage,
+  PRO_WORKBENCH_URL,
   listOutreachQueue,
   markOutreachSentManually,
   prepareOutreach,
@@ -267,5 +268,28 @@ describe('listOutreachQueue', () => {
     assert.equal(blockedItems[0].copy_text, null);
     assert.match(blockedItems[0].manual_send_instructions[0], /请勿发送/);
     assert.equal(listOutreachQueue(w.ctx, { dealer_id: w.dealerId, account_id: w.account(I3) }).length, 0);
+  });
+
+  it('follows the store\u2019s own DM channel: the 专业号 workbench instead of the app when the store set it', async () => {
+    const w = createWorld();
+    const lead = seedSignalLead(w, { user: 'u-pro', owner: WANG });
+    await prepareOutreach(w.ctx, lead.id);
+
+    const appItem = listOutreachQueue(w.ctx, { dealer_id: w.dealerId })[0];
+    assert.equal(appItem.send_channel, 'app');
+    assert.equal(appItem.workbench_url, null);
+    assert.match(appItem.manual_send_instructions.join('\n'), /小红书App/);
+
+    const dealer = w.ctx.db.table('dealers').get(w.dealerId)!;
+    w.ctx.db.table('dealers').update(w.dealerId, { settings: { ...dealer.settings, dm_channel: 'pro' } });
+
+    const proItem = listOutreachQueue(w.ctx, { dealer_id: w.dealerId })[0];
+    assert.equal(proItem.send_channel, 'pro');
+    assert.equal(proItem.workbench_url, PRO_WORKBENCH_URL);
+    const steps = proItem.manual_send_instructions.join('\n');
+    assert.match(steps, /专业号后台/);
+    assert.match(steps, /pro\.xiaohongshu\.com/);
+    assert.doesNotMatch(steps, /小红书App/);
+    assert.match(steps, /已在小红书发送/, 'the human still registers the send by hand');
   });
 });

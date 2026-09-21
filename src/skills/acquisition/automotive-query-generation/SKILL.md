@@ -14,6 +14,9 @@ Automotive Query Generator and Search Intelligence for the Lead Hunting Engine (
    - `transaction_intent` — `i3落地价` · `i3优惠多少` · `i3有现车吗` (sellable stock only) · `i3贷款方案` (active finance
      offer only) · `X3以租代购` (active lease offer only) · `宝马置换补贴` (active trade-in offer only) · `什么时候买便宜`
    - `location` — `杭州宝马` · `杭州宝马优惠` · `杭州买宝马` · `浙江宝马价格` · `杭州i3` · `杭州i3落地` · `杭州i3有现车吗` (sellable stock only)
+   - brand-level buyer questions, only while the Dealer Brain has no vehicles for a brand: `宝马值得买吗`
+     (direct_model) · `宝马哪款值得买` · `宝马求推荐` (purchase_scenario) · `宝马落地价` (transaction_intent). Without
+     them only 城市+品牌 words remain, which return mostly dealer promotion posts on Xiaohongshu.
 2. **Effectiveness** (`getQueryEffectiveness`): per query runs, posts discovered, comments scanned, users evaluated,
    candidates, qualified, high-intent, lead density, candidate rate, smoothed density, and attributed appointments /
    wins / conversion rate.

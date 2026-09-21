@@ -43,6 +43,34 @@ describe('AutomotiveOperator.submitGoal', () => {
     assert.equal(ctx.db.table('operator_goals').require(goal.id).status, 'active');
   });
 
+  it('when every search fails without a block, discovery is SKIPPED with the reason, never counted as done', async () => {
+    const { ctx, dealerId, operator } = setup(true);
+    ctx.xhs.searchNotes = async () => ({ ok: false, status: 'REQUIRES_REVIEW', reason: 'unexpected page layout' });
+    const { run } = await operator.submitGoal(ctx, { dealer_id: dealerId, text: '这个月在杭州获取宝马i3线索', actor: 'operator' });
+    const discover = operator.engine.getRun(ctx, run.id).steps.find((s) => s.step_key === 'discover');
+    assert.equal(discover?.status, 'SKIPPED');
+    assert.match(String(discover?.output.reason), /^\d+ 个搜索词都没有搜索成功：REQUIRES_REVIEW: unexpected page layout/);
+    assert.equal(ctx.db.table('leads').count(), 0);
+  });
+
+  it('a manual lead_discovery run can be limited (small trial: queries, notes per query, comments per note)', async () => {
+    const { ctx, dealerId, operator } = setup(true);
+    await operator.submitGoal(ctx, { dealer_id: dealerId, text: '这个月在杭州获取宝马i3线索', actor: 'operator' });
+    const before = ctx.db.table('search_runs').count();
+    const run = await operator.engine.start(
+      ctx,
+      'lead_discovery',
+      { dealer_id: dealerId, max_queries: 1, max_posts: 1, max_comments_per_post: 2 },
+      { trigger: 'manual', dealer_id: dealerId },
+    );
+    const discover = operator.engine.getRun(ctx, run.id).steps.find((s) => s.step_key === 'discover');
+    const runs = discover?.output.runs as { posts_discovered: number; comments_scanned: number }[];
+    assert.equal(runs.length, 1);
+    assert.ok(runs[0].posts_discovered <= 1);
+    assert.ok(runs[0].comments_scanned <= 2);
+    assert.equal(ctx.db.table('search_runs').count(), before + 1);
+  });
+
   it('background submission returns the RUNNING run immediately and finishes later', async () => {
     const { ctx, dealerId, operator } = setup(false);
     const { run } = await operator.submitGoal(ctx, { dealer_id: dealerId, text: '生成今天的经营报告', actor: 'operator' }, { background: true });

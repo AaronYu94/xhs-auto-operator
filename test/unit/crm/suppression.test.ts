@@ -72,6 +72,7 @@ function insertLead(ctx: TestContext, d: { dealer: { id: string; group_id: strin
     platform_user_id: platformUserId,
     username: '用户',
     profile_url: null,
+    avatar_url: null,
     stage: 'CANDIDATE',
     score: 70,
     tier: 'qualified',

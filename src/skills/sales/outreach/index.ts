@@ -18,6 +18,7 @@ import {
   type ActorType,
   type CapabilityStatus,
   type DataMode,
+  type DmChannel,
   type Engine,
   type GuardResult,
   type Lead,
@@ -32,6 +33,7 @@ import {
 import { v } from '../../../core/validate.ts';
 import { getActiveAssignment } from '../../acquisition/account-assignment/index.ts';
 import { defineSkill } from '../../registry.ts';
+import { applyVoicePronoun, getAccountVoice, voiceCopyCheck, voicePromptBlock } from '../../content/account-voice/index.ts';
 import { effectiveOutreachPolicy, requireAccount } from '../../operations/account-brain/index.ts';
 import { checkPlatformRules, detectContactInfoLeak } from '../../operations/compliance/index.ts';
 import { STAGE_INDEX, refreshNextAction, transitionLead } from '../../operations/crm/index.ts';
@@ -167,10 +169,15 @@ async function refineWithLlm(
   composed: ComposedOutreach,
   dealerId: string,
   persona: AccountPersona | null,
+  accountId: string,
 ): Promise<{ message: string | null; note: string }> {
   if (ctx.llm.status().status !== 'AVAILABLE') return { message: null, note: 'llm_unavailable' };
+  // 账号语言风格: how this account itself writes, learned from its own notes (compact — a DM is short).
+  const voice = getAccountVoice(ctx, accountId);
+  const voiceBlock = voicePromptBlock(voice, { compact: true });
   const prompt = [
     `账号人设：${persona?.persona_name ?? ''}；语气：${persona?.tone ?? ''}；表达规则：${(persona?.voice_rules ?? []).join('；')}`,
+    voiceBlock,
     `必须原样保留的事实短语：${composed.fact_refs.map((f) => f.claim).join(' | ') || '（无）'}`,
     `必须原样保留的客户原话：${composed.quote ?? '（无）'}`,
     `待润色私信：${composed.message}`,
@@ -188,7 +195,10 @@ async function refineWithLlm(
   if (!checkPlatformRules(text, { prohibited, max_length: MAX_OUTREACH_CHARS, channel: 'dm' }).passed) problems.push('platform_rules');
   const facts = verifyClaims(ctx, dealerId, text, composed.fact_refs);
   if (!facts.passed) problems.push(`unverified: ${facts.issues.join('；')}`);
-  return problems.length > 0 ? { message: null, note: `llm_rejected: ${problems.join(', ')}` } : { message: text, note: 'llm_used' };
+  // Imitating the account's voice must never turn into reusing one of its notes.
+  const copy = voiceCopyCheck(ctx, accountId, text);
+  if (copy.copied) problems.push(`copied_own_note: ${copy.platform_note_id ?? ''}`);
+  return problems.length > 0 ? { message: null, note: `llm_rejected: ${problems.join(', ')}` } : { message: applyVoicePronoun(text, voice), note: 'llm_used' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,7 +245,7 @@ export async function prepareOutreach(ctx: AppContext, leadId: string, opts: Pre
   });
 
   const capability = await sendCapability(ctx, account.id);
-  const refined = await refineWithLlm(ctx, composed, dealer.id, persona);
+  const refined = await refineWithLlm(ctx, composed, dealer.id, persona, account.id);
   const message = refined.message ?? composed.message;
   const engine: Engine = refined.message ? 'llm+rules' : 'rules';
 
@@ -328,7 +338,7 @@ export async function prepareOutreach(ctx: AppContext, leadId: string, opts: Pre
       details: { lead_id: lead.id, account_id: account.id, kind, status: inserted.status, blocked_reason: inserted.blocked_reason },
     });
     if (inserted.status === 'READY_FOR_REVIEW' || inserted.status === 'APPROVED') {
-      advanceLead(ctx, lead.id, 'OUTREACH_READY', `私信已生成（${inserted.status}）`, actor);
+      advanceLead(ctx, lead.id, 'OUTREACH_READY', inserted.status === 'APPROVED' ? '私信已生成，已通过审核' : '私信已生成，等人审核', actor);
     }
     return inserted;
   });
@@ -456,6 +466,9 @@ export async function sendOutreach(ctx: AppContext, outreachId: string): Promise
         capability_status: capability.status,
         blocked_reason: null,
       });
+      // The conversation is the first place this system ever sees the person's face; a lead that had none gets it now.
+      const face = typeof result.data.peer_avatar_url === 'string' ? result.data.peer_avatar_url.trim() : '';
+      if (face && !lead.avatar_url) ctx.db.table('leads').update(lead.id, { avatar_url: face });
       ctx.audit.event({
         actor,
         action: 'outreach.sent',
@@ -540,7 +553,7 @@ export function markOutreachSentManually(ctx: AppContext, outreachId: string, ac
       entity_id: o.id,
       details: { lead_id: o.lead_id, account_id: o.account_id, kind: o.kind },
     });
-    advanceLead(ctx, o.lead_id, 'CONTACTED', `${who} 已在小红书App中手动发送私信`, who);
+    advanceLead(ctx, o.lead_id, 'CONTACTED', `${who} 已在小红书手动发送私信`, who);
     return ctx.db.table('outreach').require(o.id);
   });
 
@@ -602,16 +615,27 @@ export interface OutreachQueueItem {
   /** exact text to paste in the Xiaohongshu app; null when the outreach must not be sent */
   copy_text: string | null;
   manual_send_instructions: string[];
+  /** where this store sends DMs by hand, and the workbench to open for the 专业号 channel */
+  send_channel: DmChannel;
+  workbench_url: string | null;
 }
 
-function instructionsFor(o: Outreach, lead: Lead, nickname: string): string[] {
+/** 专业号 customer-service workbench. Opening it is all Steer does there: it never drives the page. */
+export const PRO_WORKBENCH_URL = 'https://pro.xiaohongshu.com/im/multiCustomerService';
+
+function instructionsFor(o: Outreach, lead: Lead, nickname: string, channel: DmChannel): string[] {
   if (o.status === 'BLOCKED') return [`已拦截，请勿发送：${o.blocked_reason ?? '未通过发送前检查'}`];
   if (o.status === 'CANCELLED') return ['已取消，请勿发送'];
   if (o.status === 'SENT' || o.status === 'SENT_MANUALLY') return [`已于 ${o.sent_at ?? ''} 发送${o.sent_by ? `（${o.sent_by}）` : ''}`];
   const steps: string[] = [];
   if (o.status === 'READY_FOR_REVIEW' || o.status === 'DRAFT') steps.push('先审核私信内容，必要时修改后点击「审核通过」');
-  steps.push(`在小红书App中登录负责账号「${nickname}」（只能由该账号发送，其他账号不要重复联系）`);
-  steps.push(lead.profile_url ? `打开客户主页 ${lead.profile_url} ，点击「私信」` : `在原笔记评论区找到用户「${lead.username}」，进入主页后点击「私信」`);
+  if (channel === 'pro') {
+    steps.push(`用负责账号「${nickname}」登录专业号后台 ${PRO_WORKBENCH_URL}（只能由该账号发送，其他账号不要重复联系）`);
+    steps.push(`在客服工作台的会话列表里找到用户「${lead.username}」${lead.profile_url ? `（主页 ${lead.profile_url}）` : ''}；对方还没来过私信时，先从主页发起会话`);
+  } else {
+    steps.push(`在小红书App中登录负责账号「${nickname}」（只能由该账号发送，其他账号不要重复联系）`);
+    steps.push(lead.profile_url ? `打开客户主页 ${lead.profile_url} ，点击「私信」` : `在原笔记评论区找到用户「${lead.username}」，进入主页后点击「私信」`);
+  }
   steps.push('粘贴下方私信内容发送，不要额外添加电话、微信或任何链接');
   steps.push('发送成功后回到本系统点击「已在小红书发送」登记');
   if (o.status === 'APPROVED' && o.blocked_reason) steps.unshift(`系统发送未完成：${o.blocked_reason}`);
@@ -620,7 +644,7 @@ function instructionsFor(o: Outreach, lead: Lead, nickname: string): string[] {
 
 export function listOutreachQueue(ctx: AppContext, q: OutreachQueueQuery): OutreachQueueItem[] {
   if (!q || typeof q.dealer_id !== 'string' || !q.dealer_id) throw new ValidationError('dealer_id', 'required');
-  getDealer(ctx, q.dealer_id);
+  const channel = getDealer(ctx, q.dealer_id).settings.dm_channel ?? 'app';
   const statuses = q.statuses && q.statuses.length > 0 ? q.statuses : (['READY_FOR_REVIEW', 'APPROVED'] as OutreachStatus[]);
   for (const s of statuses) if (!(OUTREACH_STATUSES as readonly string[]).includes(s)) throw new ValidationError('statuses', `unknown status ${s}`);
   const limit = Math.min(500, Math.max(1, Math.floor(q.limit ?? 100)));
@@ -668,7 +692,9 @@ export function listOutreachQueue(ctx: AppContext, q: OutreachQueueQuery): Outre
           }
         : null,
       copy_text: sendable ? o.message : null,
-      manual_send_instructions: instructionsFor(o, lead, account.nickname),
+      manual_send_instructions: instructionsFor(o, lead, account.nickname, channel),
+      send_channel: channel,
+      workbench_url: channel === 'pro' && sendable ? PRO_WORKBENCH_URL : null,
     };
   });
 }
