@@ -181,16 +181,18 @@ export function buildRunView(
 ): RunView {
   const purposeOf = new Map(defs.map((d) => [d.key, d.description]));
   const views: StepView[] = steps.map((s) => {
-    const state = STATE_OF[s.status];
     const output = obj(s.output);
     const reason = typeof output.reason === 'string' ? output.reason : null;
+    // A step that found nothing to do did its job: it reads as done, with the reason as its one-line result.
+    const idle = s.status === 'SKIPPED' && output.idle === true;
+    const state: StepState = idle ? 'done' : STATE_OF[s.status];
     return {
       key: s.step_key,
       // An unmapped step key is an internal name; the purpose line stands in for it, never the key itself.
       title: STEP_TITLE[s.step_key] ?? purposeOf.get(s.step_key)?.split(/[：:（(]/)[0] ?? '一个步骤',
       purpose: purposeOf.get(s.step_key) ?? null,
       state,
-      summary: state === 'done' ? summarizeStep(s.step_key, output) : state === 'running' ? progressText(s.step_key, output) : null,
+      summary: idle ? reason : state === 'done' ? summarizeStep(s.step_key, output) : state === 'running' ? progressText(s.step_key, output) : null,
       problem: state === 'failed' ? explainProblem(s.error ?? run.error) : state === 'skipped' ? explainProblem(reason) ?? '这一步被跳过了。' : null,
     };
   });
@@ -213,7 +215,10 @@ export function buildRunView(
     if (skipped.length) {
       headline = `已结束，但有 ${skipped.length} 步被跳过`;
       tone = 'warn';
-      advice = `「${skipped.map((v) => v.title).join('」「')}」没有执行。${skipped[0]?.problem ?? ''}原因解决后可以再运行一次。`;
+      // Steps skipped for the same reason share one sentence; different reasons are each said once.
+      const byProblem = new Map<string, string[]>();
+      for (const v of skipped) byProblem.set(v.problem ?? '', [...(byProblem.get(v.problem ?? '') ?? []), v.title]);
+      advice = `${[...byProblem].map(([problem, titles]) => `「${titles.join('」「')}」没有执行。${problem}`).join('')}原因解决后可以再运行一次。`;
     } else {
       headline = '全部完成';
       tone = 'ok';

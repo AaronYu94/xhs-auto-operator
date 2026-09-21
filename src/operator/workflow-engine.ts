@@ -125,6 +125,15 @@ export function skipStep(reason: string, details: Record<string, unknown> = {}):
   return { ...details, __skipped: true, reason };
 }
 
+/**
+ * The step ran and found nothing to do (no new drafts to write, no leads to research). It is still stored as
+ * SKIPPED — the step did no work — but marked `idle: true`, so a report never lists it next to steps that were
+ * blocked (a logged-out session, a missing capability) as if it had the same cause.
+ */
+export function idleStep(reason: string, details: Record<string, unknown> = {}): SkippedStepResult {
+  return { ...details, idle: true, __skipped: true, reason };
+}
+
 export const INTERRUPTED_ERROR = 'interrupted: process restarted';
 export const RESUMABLE_STATUSES: readonly WorkflowStatus[] = ['FAILED', 'PARTIAL', 'RUNNING', 'CANCELLED'];
 

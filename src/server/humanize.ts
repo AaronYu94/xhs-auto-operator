@@ -59,7 +59,12 @@ export function humanProblem(raw: string | null | undefined): string | null {
   const t = String(raw);
   if (/interrupted: process restarted/i.test(t)) return '系统重启时这一步被打断了，重新运行即可。';
   if (/cancel/i.test(t)) return '任务被取消了。';
-  if (/REQUIRES_AUTH|not logged in|未登录|登录已?过期|扫码登录/i.test(t)) return '账号掉登录了，去「账号」页重新扫码登录就能继续。';
+  // Which session logged out decides where the fix is: the shared search session has its own card on 账号.
+  if (/REQUIRES_AUTH|not logged in|未登录|登录已?过期|扫码登录/i.test(t)) {
+    return /\bon research\b|research session|研究实例|\bresearch\b/i.test(t)
+      ? '找客户用的号掉登录了：去「账号」页，在「找客户用的号」那一栏重新扫码登录就能继续。'
+      : '账号掉登录了，去「账号」页重新扫码登录就能继续。';
+  }
   if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|unreachable|fetch failed/i.test(t)) return '这台机器上的账号服务没在运行，去「账号」页点「重新连接」。';
   if (/no xiaohongshu-mcp endpoint|no endpoint configured|还没有自己的/i.test(t)) return '这个账号还没连上小红书，去「账号」页完成连接和扫码登录。';
   if (/deadline exceeded|timed? ?out|timeout|aborted|超时/i.test(t)) return '小红书那边响应太慢，这次没成功，稍后会自动重试。';

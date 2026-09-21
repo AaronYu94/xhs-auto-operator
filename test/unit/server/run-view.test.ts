@@ -93,3 +93,33 @@ describe('run view: what an operator sees instead of the raw run record', () => 
     assert.match(v.steps[1].summary ?? '', /正在读第 3\/5 篇笔记/);
   });
 });
+
+describe('run view: blocked vs nothing to do', () => {
+  const RESEARCH_LOGGED_OUT = 'REQUIRES_AUTH: Xiaohongshu session not logged in on research (log in via get_login_qrcode)';
+
+  it('a step with nothing to do reads as done, and only blocked steps are called skipped', () => {
+    const v = buildRunView(
+      { status: 'SUCCEEDED', error: null, trigger: 'goal' },
+      [
+        step('ensure_queries', 'SUCCEEDED', { generated: 19, active: 24 }),
+        step('discover', 'SKIPPED', { skipped: true, reason: `公开内容搜索被阻断：${RESEARCH_LOGGED_OUT}` }),
+        step('research_leads', 'SKIPPED', { skipped: true, reason: `读取公开主页不可用（${RESEARCH_LOGGED_OUT}）` }),
+        step('prepare_outreach', 'SKIPPED', { skipped: true, idle: true, reason: '没有待生成私信的已分配线索' }),
+      ],
+      DEFS,
+      false,
+    );
+    assert.equal(v.headline, '已结束，但有 2 步被跳过');
+    const idle = v.steps.find((s) => s.key === 'prepare_outreach')!;
+    assert.equal(idle.state, 'done');
+    assert.equal(idle.summary, '没有待生成私信的已分配线索');
+    assert.doesNotMatch(v.advice ?? '', /写私信草稿/, 'the idle step is not listed next to the blocked ones');
+    // both blocked steps share one cause, said once, and it names the session that logged out
+    assert.equal((v.advice ?? '').match(/找客户用的号掉登录了/g)?.length, 1);
+  });
+
+  it('a logged-out search session is named, a logged-out account keeps the generic wording', () => {
+    assert.match(explainProblem(RESEARCH_LOGGED_OUT) ?? '', /找客户用的号/);
+    assert.match(explainProblem('REQUIRES_AUTH: Xiaohongshu session not logged in on account xhs-hz-official') ?? '', /^账号掉登录了/);
+  });
+});

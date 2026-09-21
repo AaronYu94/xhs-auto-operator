@@ -51,7 +51,7 @@ import { planFollowUps } from '../skills/sales/follow-up/index.ts';
 import { prepareOutreach } from '../skills/sales/outreach/index.ts';
 import { goalTargets } from './goal-parser.ts';
 import { DEFAULT_DAILY_SCHEDULE } from './scheduler.ts';
-import { skipStep, type StepContext, type WorkflowDef, type WorkflowStepDef } from './workflow-engine.ts';
+import { idleStep, skipStep, type StepContext, type WorkflowDef, type WorkflowStepDef } from './workflow-engine.ts';
 
 export const GOAL_WORKFLOW = 'goal_execution';
 export const MAX_RESEARCH_PER_RUN = 20;
@@ -382,7 +382,7 @@ export function researchLeadsStep(): WorkflowStepDef {
       if (cap.status !== 'AVAILABLE') return skipStep(`读取公开主页不可用（${cap.status}：${cap.reason}）`, { status: cap.status });
       const touched = outputs.discover?.leads_touched;
       const ids = Array.isArray(touched) ? touched.filter((x): x is string => typeof x === 'string') : [];
-      if (ids.length === 0) return skipStep('本次没有新发现或更新的线索需要研究');
+      if (ids.length === 0) return idleStep('本次没有新发现或更新的线索需要研究');
       const leads = ctx.db
         .table('leads')
         .findMany({ id: ids, dealer_id: dealerId, stage: stagesFrom('QUALIFIED') })
@@ -433,7 +433,7 @@ export function prepareOutreachStep(): WorkflowStepDef {
         [dealerId, ...OUTREACH_EXISTS_STATUSES],
         { orderBy: 'score DESC', limit: MAX_OUTREACH_PER_RUN },
       );
-    if (leads.length === 0) return skipStep('没有待生成私信的已分配线索');
+    if (leads.length === 0) return idleStep('没有待生成私信的已分配线索');
     const prepared: { lead_id: string; outreach_id: string; status: string; account_id: string }[] = [];
     const refused: { lead_id: string; code: string; message: string }[] = [];
     for (const lead of leads) {
@@ -540,7 +540,7 @@ export function learnAccountVoiceStep(): WorkflowStepDef {
     async ({ ctx, run, input }) => {
       const dealerId = dealerIdOf({ run, input });
       const results = await refreshDealerVoices(ctx, dealerId, 'agent:account-strategy-agent');
-      if (results.length === 0) return skipStep('没有需要更新语言风格的账号（都在一周内学过）');
+      if (results.length === 0) return idleStep('没有需要更新语言风格的账号（都在一周内学过）');
       const learned = results.filter((r) => r.status === 'AVAILABLE');
       if (learned.length === 0) {
         return skipStep(`暂时学不到语言风格（${[...new Set(results.map((r) => r.reason))].join('；')}）`, { accounts: results.map((r) => ({ account_id: r.account_id, reason: r.reason })) });
@@ -573,7 +573,7 @@ export function generatePostsStep(): WorkflowStepDef {
     const dealer = getDealer(ctx, dealerIdOf({ run, input }));
     const until = addDaysToKey(todayKey(ctx, dealer), CONTENT_LOOKAHEAD_DAYS);
     const posts = ctx.db.table('posts').query('dealer_id = ? AND status = ? AND slot_date <= ?', [dealer.id, 'PLANNED', until], { orderBy: 'slot_date ASC, id ASC', limit: MAX_POSTS_PER_RUN });
-    if (posts.length === 0) return skipStep('没有需要生成的内容计划');
+    if (posts.length === 0) return idleStep('没有需要生成的内容计划');
     const done: { post_id: string; status: string }[] = [];
     const failures: { post_id: string; error: string }[] = [];
     for (const p of posts) {
@@ -592,7 +592,7 @@ export function generatePostsStep(): WorkflowStepDef {
 export function reviewPostsStep(): WorkflowStepDef {
   return step('review_posts', 'content-review-agent', 'content-review', '事实核查 + 跨账号重复检查 + 平台规则检查，按审批策略进入待审/排期', ({ ctx, run, input }) => {
     const posts = ctx.db.table('posts').findMany({ dealer_id: dealerIdOf({ run, input }), status: 'DRAFTED' }, { orderBy: 'slot_date ASC, id ASC', limit: MAX_POSTS_PER_RUN });
-    if (posts.length === 0) return skipStep('没有待审核的草稿');
+    if (posts.length === 0) return idleStep('没有待审核的草稿');
     const reviewed = posts.map((p) => {
       const r = reviewPost(ctx, p.id);
       return { post_id: r.id, status: r.status };
@@ -828,7 +828,7 @@ export function updateGoalProgressStep(): WorkflowStepDef {
   return step('update_goal_progress', 'automotive-operator', 'automotive-operator', '更新经营目标进度与状态（达成/时间结束/进行中）', ({ ctx, run, input }) => {
     const dealerId = dealerIdOf({ run, input });
     const goalId = goalIdOf({ run, input });
-    if (!goalId) return skipStep('本次运行没有关联的经营目标');
+    if (!goalId) return idleStep('本次运行没有关联的经营目标');
     const goal = resolveGoal(ctx, dealerId, goalId)!;
     const progress = computeGoalProgress(ctx, goal);
     const decision = decideGoalStatus(ctx, goal, progress);
