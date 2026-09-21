@@ -109,8 +109,9 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
     };
     let c = await boot(env);
     try {
-      // auth
-      const gate = await fetch(`${c.url}/`, { redirect: 'manual' });
+      // auth: `/` is the public product page; every console page asks for a session
+      assert.equal((await fetch(`${c.url}/`, { redirect: 'manual' })).status, 200);
+      const gate = await fetch(`${c.url}/leads`, { redirect: 'manual' });
       assert.equal(gate.status, 303);
       assert.match(gate.headers.get('location') ?? '', /^\/login\?next=/);
       await api(c, 'GET', '/api/dealers', undefined, [401]);
@@ -219,7 +220,36 @@ describe('console e2e (simulation provider, real runtime)', { timeout: 240_000 }
       assert.equal((await fetch(`${c.url}/api/dealers`)).status, 401);
       const gate = await fetch(`${c.url}/system`, { redirect: 'manual' });
       assert.equal(gate.status, 303);
+
+      // A stranger opening the domain sees the product page, with one way in for existing customers.
+      const site = await fetch(`${c.url}/`, { redirect: 'manual' });
+      assert.equal(site.status, 200);
+      const siteHtml = await site.text();
+      assert.match(siteHtml, /替汽车门店运营/);
+      assert.match(siteHtml, /href="\/login">客户登录/);
+      assert.match(siteHtml, /action="\/demo-request"/);
+      assert.equal((await fetch(`${c.url}/assets/site.css`)).status, 200);
+      const shot = siteHtml.match(/<img src="([^"]+)"/)![1]!;
+      const img = await fetch(`${c.url}${shot}`);
+      assert.equal(img.status, 200, 'the screenshots load without a session');
+      assert.equal(img.headers.get('content-type'), 'image/webp');
+      assert.equal((await fetch(`${c.url}/assets/site/nope.webp`)).status, 404);
+
+      // The demo form stores a real request, turns a bad one away with the input kept, and needs no session.
+      const post = (fields: Record<string, string>) =>
+        fetch(`${c.url}/demo-request`, { method: 'POST', redirect: 'manual', headers: { origin: c.url, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields) });
+      const bad = await post({ name: '王经理', phone: '12345', company: '城北汽车' });
+      assert.equal(bad.status, 422);
+      assert.match(await bad.text(), /value="城北汽车"/);
+      const good = await post({ name: '王经理', phone: '138 0000 1234', company: '城北汽车', accounts: '5-9 个' });
+      assert.equal(good.status, 303);
+      assert.equal(good.headers.get('location'), '/welcome?sent=1#demo');
+      assert.match(await (await fetch(`${c.url}/welcome?sent=1`)).text(), /收到了/);
       await login(c, '值班运营', PASSWORD);
+      const system = await page(c, '/system');
+      assert.match(system, /官网预约/);
+      assert.match(system, /城北汽车/);
+      assert.match(system, /13800001234/, 'the phone is stored without the spaces the visitor typed');
       const home = await page(c, '/');
       assert.match(home, /未连接小红书/);
       assert.match(home, /还没有门店/);

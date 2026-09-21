@@ -96,6 +96,7 @@ export const TABLE_META: Record<TableName, { json: readonly string[]; bool: read
   xhs_notifications: { json: [], bool: ['comment_liked'] },
   account_voice_profiles: { json: ['sample_note_ids', 'metrics', 'rules', 'vocabulary', 'examples', 'avoid'], bool: [] },
   console_users: { json: [], bool: [] },
+  demo_requests: { json: [], bool: [] },
   operator_reports: { json: ['report'], bool: [] },
 };
 
@@ -905,6 +906,22 @@ CREATE TABLE console_users (
 );
 `;
 
+const SCHEMA_V12 = /* sql */ `
+CREATE TABLE demo_requests (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  company TEXT NOT NULL,
+  city TEXT,
+  accounts TEXT,
+  message TEXT,
+  handled_at TEXT,
+  handled_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_demo_requests_created ON demo_requests(created_at DESC);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial_schema', sql: SCHEMA_V1 },
   { version: 2, name: 'signal_detection_fields', sql: SCHEMA_V2 },
@@ -917,4 +934,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 9, name: 'vehicle_brain', sql: SCHEMA_V9 },
   { version: 10, name: 'account_voice', sql: SCHEMA_V10 },
   { version: 11, name: 'console_users', sql: SCHEMA_V11 },
+  { version: 12, name: 'demo_requests', sql: SCHEMA_V12 },
 ];

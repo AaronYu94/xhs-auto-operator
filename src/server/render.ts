@@ -519,7 +519,7 @@ export const BRAND = '驭客 Steer';
  * The Steer S mark (vector approximation of docs/design/steer-logo.png from docs/design/steer-ui-kit.html; replace with
  * the designer's exported SVG) and the Feather icons (MIT) used by the shell, defined once per page.
  */
-const SVG_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+export const SVG_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="st-gU" x1="250" y1="30" x2="60" y2="220" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--st-mark-a)"/><stop offset="1" style="stop-color:var(--st-mark-b)"/></linearGradient>
 <radialGradient id="st-gF" cx="95" cy="205" r="80" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--st-mark-fold)"/><stop offset="1" style="stop-color:var(--st-mark-a)"/></radialGradient>
 <linearGradient id="st-gL" x1="272" y1="205" x2="55" y2="355" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#D8C29F"/><stop offset=".4" stop-color="#B69A70"/><stop offset=".8" style="stop-color:var(--st-mark-b)"/><stop offset="1" style="stop-color:var(--st-mark-end)"/></linearGradient>

@@ -837,6 +837,20 @@ export interface ConsoleUser {
   updated_at: string;
 }
 
+/** A demo request left on the public site (yuke-ai.com). Seen and handled on 系统 → 官网预约. */
+export interface DemoRequest {
+  id: string;
+  name: string;
+  phone: string;
+  company: string;
+  city: string | null;
+  accounts: string | null;
+  message: string | null;
+  handled_at: string | null;
+  handled_by: string | null;
+  created_at: string;
+}
+
 export interface AccountVoiceProfile {
   id: string;
   account_id: string;
@@ -1459,6 +1473,7 @@ export interface EntityMap {
   xhs_notifications: XhsNotification;
   account_voice_profiles: AccountVoiceProfile;
   console_users: ConsoleUser;
+  demo_requests: DemoRequest;
   operator_reports: OperatorReport;
 }
 

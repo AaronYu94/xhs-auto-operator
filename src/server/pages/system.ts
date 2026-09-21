@@ -42,6 +42,7 @@ import {
   scrubInternals,
 } from '../humanize.ts';
 import { hint } from '../hint.ts';
+import { listDemoRequests } from '../demo-requests.ts';
 import { UNFINISHED } from '../unfinished.ts';
 import { decisionText, decisionTitle } from './decision-view.ts';
 import { STEP_TITLE, TRIGGER_LABEL, buildRunView, type StepState } from './run-view.ts';
@@ -100,6 +101,26 @@ const readable = (text: string | null | undefined): string =>
     .replace(/\s*[,，、·；;]\s*[)）]/g, '）')
     .replace(/[（(]\s*[)）]/g, '');
 
+/** Demo requests from the public site: the one place they are read, called back and ticked off. */
+function demoRequestsBlock(ctx: PageEnv['runtime']['ctx'], nowMs: number): string {
+  const all = listDemoRequests(ctx);
+  const rows = all.map((d) => [
+    `<div class="primary">${esc(d.name)}</div><div class="secondary">${esc(d.company)}${d.city ? ` · ${esc(d.city)}` : ''}</div>`,
+    `<span class="small nowrap">${esc(d.phone)}</span>`,
+    `<span class="small">${esc(d.accounts ?? '')}</span>${d.message ? `<div class="secondary">${esc(d.message)}</div>` : ''}`,
+    `<span class="tiny muted nowrap">${esc(ago(d.created_at, nowMs))}</span>`,
+    d.handled_at
+      ? `<span class="tiny muted nowrap">${esc(d.handled_by ?? '')} 已联系</span>`
+      : `<button class="btn btn-ghost btn-sm" data-action="call" data-url="/api/demo-requests/${esc(d.id)}/handled" data-success="已标记">已联系</button>`,
+  ]);
+  const waiting = all.filter((d) => !d.handled_at).length;
+  return `${sectionHead('官网预约', {
+    note: waiting > 0 ? `${waiting} 个还没联系` : all.length ? '都联系过了' : '',
+    help: ['在官网上点「预约演示」留下联系方式的人。打过电话之后点「已联系」，它就不会再算在待联系里。'],
+  })}
+${table(['谁', '电话', '账号数 / 想了解的', '时间', ''], rows, { compact: true, empty: '还没有人在官网预约演示。' })}`;
+}
+
 export function systemPage(env: PageEnv, rc: RequestContext): Reply {
   const { ctx, engine, scheduler } = env.runtime;
   const { dealer, dealers } = resolveDealer(ctx, rc);
@@ -119,7 +140,9 @@ export function systemPage(env: PageEnv, rc: RequestContext): Reply {
   ${resultBox}
 </form>`;
   if (!dealer) {
-    return renderPage(env, rc, { title: '系统', active: 'system', dealer: null, dealers, h1: '系统', subtitle: '先导入门店资料，或者去「设置」新建门店', body: `<div id="dealer-brain">${noDealerBody()}${importForm.replace('data-success="门店资料已导入"', 'data-success="门店资料已导入" data-redirect="/"')}</div>` });
+    // Demo requests belong to the installation, not to a store: they are shown before any store exists too.
+    const demos = listDemoRequests(ctx).length > 0 ? `${demoRequestsBlock(ctx, ctx.clock.now().getTime())}<div class="block"></div>` : '';
+    return renderPage(env, rc, { title: '系统', active: 'system', dealer: null, dealers, h1: '系统', subtitle: '先导入门店资料，或者去「设置」新建门店', body: `${demos}<div id="dealer-brain">${noDealerBody()}${importForm.replace('data-success="门店资料已导入"', 'data-success="门店资料已导入" data-redirect="/"')}</div>` });
   }
   const tz = dealerTz(dealer);
   const nowMs = ctx.clock.now().getTime();
@@ -274,8 +297,10 @@ export function systemPage(env: PageEnv, rc: RequestContext): Reply {
     `<span class="tiny muted">${esc(ago(e.created_at, nowMs))}</span>`,
   ]);
 
+
   const body = `
-${sectionHead('小红书连接', {
+${demoRequestsBlock(ctx, nowMs)}
+<div class="block">${sectionHead('小红书连接', {
     note: `${source.label} · ${ai.label}`,
     help: [
       `${source.note}。${ai.note}。`,
@@ -284,7 +309,7 @@ ${sectionHead('小红书连接', {
     ],
     right: `<button class="btn btn-ink btn-sm" data-action="call" data-url="/api/accounts/sync" data-body="${dataBody({ dealer_id: dealer.id })}" data-success="已重新检测">重新检测</button>`,
   })}
-${table(['账号', '能力', '状态', '说明', '检测时间'], capRows, { compact: true, empty: '还没有检测记录，点右上角「重新检测」。' })}
+${table(['账号', '能力', '状态', '说明', '检测时间'], capRows, { compact: true, empty: '还没有检测记录，点右上角「重新检测」。' })}</div>
 <div class="block">${sectionHead('自动任务', {
     note: '系统每天替门店做的事',
     help: [

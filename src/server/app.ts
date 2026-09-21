@@ -5,7 +5,7 @@
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { AppError } from '../core/errors.ts';
+import { AppError, NotFoundError, ValidationError } from '../core/errors.ts';
 import { MIGRATIONS } from '../db/schema.ts';
 import { describeError } from '../operator/workflow-engine.ts';
 import { registerContentRoutes } from './api/content.ts';
@@ -18,7 +18,8 @@ import { registerMediaRoutes } from './api/media.ts';
 import { registerPublishingRoutes } from './api/publishing.ts';
 import { registerSalesRoutes } from './api/sales.ts';
 import { registerSetupRoutes } from './api/setup.ts';
-import { CONSOLE_CSS, CONSOLE_JS } from './assets.ts';
+import { CONSOLE_CSS, CONSOLE_JS, SITE_CSS } from './assets.ts';
+import { siteImage } from './site-images.ts';
 import {
   LoginLimiter,
   clientAddress,
@@ -34,6 +35,8 @@ import {
   verifySession,
 } from './auth.ts';
 import { checkLogin } from './users.ts';
+import { createDemoRequest, markDemoRequestHandled } from './demo-requests.ts';
+import { landingPage } from './pages/landing.ts';
 import { METHODS, Router, parseJsonBody, readRawBody, sendReply, toErrorReply, type Method, type Reply, type RequestContext } from './http.ts';
 import { registerPages } from './pages/index.ts';
 import { bareLayout, esc, markSvg } from './render.ts';
@@ -86,6 +89,40 @@ export function buildRouter(runtime: ServerRuntime, options: ServerOptions): Rou
 
   router.get('/assets/app.css', () => ({ body: CONSOLE_CSS, contentType: 'text/css; charset=utf-8', cacheSeconds: 300 }), { public: true });
   router.get('/assets/app.js', () => ({ body: CONSOLE_JS, contentType: 'text/javascript; charset=utf-8', cacheSeconds: 300 }), { public: true });
+  router.get('/assets/site.css', () => ({ body: SITE_CSS, contentType: 'text/css; charset=utf-8', cacheSeconds: 300 }), { public: true });
+  router.get(
+    '/assets/site/:name',
+    (rc) => {
+      const body = siteImage(rc.params.name!);
+      if (!body) throw new NotFoundError('image', rc.params.name!);
+      return { body, contentType: 'image/webp', cacheSeconds: 86400 };
+    },
+    { public: true },
+  );
+
+  // ── public site: the product page, a demo-request form, and 客户登录 (→ /login) ─────────────────────────────
+  // Anonymous visitors of `/` get this page instead of a login redirect; /welcome shows it to anyone.
+  router.get('/welcome', (rc) => ({ html: landingPage({ sent: rc.query.get('sent') === '1' }) }), { public: true });
+  const demoLimiter = new LoginLimiter(5, 10 * 60 * 1000);
+  router.post('/api/demo-requests/:id/handled', (rc) => ({ json: { demo_request: markDemoRequestHandled(ctx, rc.params.id!, rc.actor) } }));
+  router.post(
+    '/demo-request',
+    async (rc) => {
+      const key = clientAddress(rc.req, options.trust_proxy);
+      const nowMs = Date.now();
+      const form = await readForm(rc);
+      if (demoLimiter.blocked(key, nowMs)) return { status: 429, html: landingPage({ error: '提交得太频繁了，请稍后再试', values: form }) };
+      demoLimiter.fail(key, nowMs);
+      try {
+        createDemoRequest(ctx, form);
+      } catch (e) {
+        if (e instanceof ValidationError) return { status: 422, html: landingPage({ error: e.message.replace(/^\w+: /, ''), values: form }) };
+        throw e;
+      }
+      return { redirect: '/welcome?sent=1#demo' };
+    },
+    { public: true },
+  );
   router.get('/favicon.ico', () => ({ status: 204, text: '' }), { public: true });
 
   router.get('/healthz', () => ({ json: { status: 'ok', version: options.version, uptime_s: Math.round((Date.now() - options.started_at_ms) / 1000) } }), { public: true });
@@ -215,6 +252,11 @@ export function createServer(runtime: ServerRuntime, overrides: Partial<ServerOp
       const session = verifySession(options.session_secret, parseCookies(req.headers.cookie)[SESSION_COOKIE], Date.now());
       const operator = session?.sub ?? (options.auth_enabled ? '' : '控制台');
       actor = session ? `operator:${session.sub}` : options.auth_enabled ? 'anonymous' : 'operator:console';
+      // The product page, not a login wall, is what a stranger opening the domain sees.
+      if (!session && options.auth_enabled && path === '/' && (methodRaw === 'GET' || methodRaw === 'HEAD')) {
+        sendReply(res, methodRaw, { html: landingPage() });
+        return;
+      }
       if (!match.route.opts.public) {
         if (options.auth_enabled && !session) {
           status = 401;

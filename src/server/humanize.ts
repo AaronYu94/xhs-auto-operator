@@ -193,6 +193,12 @@ export function humanActor(actor: string | null | undefined): string {
 
 /** `post.published` → 发布了笔记. Unknown actions fall back to their own words without the dotted namespace. */
 const ACTION_LABEL: Record<string, string> = {
+  'demo_request.created': '官网有人预约演示',
+  'demo_request.handled': '联系了官网预约',
+  'console.user_created': '新建了个人账号',
+  'console.user_password_changed': '改了个人账号密码',
+  'console.user_disabled': '停用了个人账号',
+  'console.user_enabled': '恢复了个人账号',
   'post.published': '发布了笔记',
   'post.published_unreachable': '发布结果未知',
   'post.ready_to_publish': '笔记待人工发布',
@@ -257,6 +263,14 @@ export interface SubjectLink {
 export function humanSubject(ctx: AppContext, type: string, id: string, dealerId: string | null): SubjectLink {
   const q = dealerId ? `?dealer=${encodeURIComponent(dealerId)}` : '';
   switch (type) {
+    case 'demo_request': {
+      const row = ctx.db.table('demo_requests').get(id);
+      return { label: row ? `官网预约 ${row.company}` : '官网预约', href: `/system${q}` };
+    }
+    case 'console_user': {
+      const row = ctx.db.table('console_users').get(id);
+      return { label: row ? `个人账号 ${row.name}` : '个人账号', href: null };
+    }
     case 'lead': {
       const lead = ctx.db.table('leads').get(id);
       return { label: lead ? `客户 ${lead.username}` : '客户', href: lead ? `/leads/${lead.id}${q}` : null };

@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { SITE_CSS } from './site-css.ts';
+
+export { SITE_CSS };
 
 /**
  * Static console assets (served from /assets/*): the 驭客 Steer stylesheet (docs/UI_DESIGN.md, docs/design/steer-ui-kit.html) and a
@@ -1198,4 +1201,4 @@ export const CONSOLE_JS = `(() => {
 `;
 
 /** Content hash appended to asset URLs: a changed stylesheet or script is never served from a stale browser cache. */
-export const ASSET_VERSION = createHash('sha256').update(CONSOLE_CSS).update(CONSOLE_JS).digest('hex').slice(0, 10);
+export const ASSET_VERSION = createHash('sha256').update(CONSOLE_CSS).update(CONSOLE_JS).update(SITE_CSS).digest('hex').slice(0, 10);
