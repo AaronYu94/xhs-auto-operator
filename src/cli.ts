@@ -13,6 +13,8 @@
  *   node src/cli.ts run <workflow> <dealer_id>
  *   node src/cli.ts xhs-login <account_id|research> [--out qr.png]
  *   node src/cli.ts import-content <dealer_id> <file>
+ *   node src/cli.ts user add|passwd <name>   password from CONSOLE_USER_PASSWORD or stdin (never argv)
+ *   node src/cli.ts user disable|enable <name> · user list
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +30,7 @@ import { startAccountLogin } from './skills/operations/account-sessions/index.ts
 import { getDealer, importDealerBrain, parseDealerBrainBundle } from './skills/operations/dealer-brain/index.ts';
 import { exportDealerBrainBundle } from './server/api/dealers.ts';
 import { startServer } from './server/app.ts';
+import { createUser, listUsers, setUserDisabled, setUserPassword } from './server/users.ts';
 
 export const DEMO_FIXTURE_PATH = fileURLToPath(new URL('../fixtures/dealers/hangzhou-bmw-group.json', import.meta.url));
 const CLI_ACTOR = 'operator:cli';
@@ -48,6 +51,9 @@ const USAGE = `AI 汽车运营官 — 小红书获客与运营系统
   run <workflow> <dealer_id>             手动运行一个工作流
   xhs-login <account_id|research> [--out qr.png]   获取账号扫码登录二维码
   import-content <dealer_id> <file>      导入真实公开笔记/评论 JSON（标记为导入数据）
+  user add|passwd <姓名>                 新建个人账号 / 改密码（用 ssh -t 运行时隐藏输入并确认两次；不写在命令行里）
+  user disable|enable <姓名>             停用 / 恢复个人账号
+  user list                              列出个人账号
 `;
 
 interface Parsed {
@@ -84,6 +90,62 @@ function config(env: Record<string, string | undefined> = process.env): AppConfi
     }
     throw e;
   }
+}
+
+/**
+ * A password for `user add|passwd`: CONSOLE_USER_PASSWORD, else typed at a hidden prompt (run over `ssh -t`), else the
+ * first line of piped stdin. Never argv. Anything with a control character is refused: without a terminal, arrow keys
+ * arrive as raw escape bytes and would silently become part of the password.
+ */
+async function readSecret(confirm: boolean): Promise<string> {
+  const fromEnv = process.env.CONSOLE_USER_PASSWORD;
+  const value = fromEnv ?? (process.stdin.isTTY ? await promptHidden('新密码：', confirm) : await firstStdinLine());
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new AppError('validation_error', '密码里有方向键、退格等控制字符，没有保存。请用 ssh -t 运行，直接输入密码后回车', 422);
+  }
+  return value;
+}
+
+async function firstStdinLine(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+    if (Buffer.concat(chunks).includes(10)) break;
+  }
+  return Buffer.concat(chunks).toString('utf8').split('\n')[0]!.replace(/\r$/, '');
+}
+
+function promptHidden(label: string, confirm: boolean): Promise<string> {
+  const ask = (text: string) =>
+    new Promise<string>((resolve, reject) => {
+      const stdin = process.stdin;
+      process.stderr.write(text);
+      stdin.setRawMode(true);
+      stdin.resume();
+      let buf = '';
+      const done = (fn: () => void) => {
+        stdin.off('data', onData);
+        stdin.setRawMode(false);
+        stdin.pause();
+        process.stderr.write('\n');
+        fn();
+      };
+      const onData = (data: Buffer) => {
+        for (const ch of data.toString('utf8')) {
+          if (ch === '\r' || ch === '\n') return done(() => resolve(buf));
+          if (ch === '\u0003') return done(() => reject(new AppError('cancelled', '已取消', 1)));
+          if (ch === '\u007f' || ch === '\b') buf = Array.from(buf).slice(0, -1).join('');
+          else buf += ch; // a control character is kept here on purpose, so readSecret can refuse it
+        }
+      };
+      stdin.on('data', onData);
+    });
+  return ask(label).then(async (first) => {
+    if (!confirm) return first;
+    const second = await ask('再输入一次：');
+    if (second !== first) throw new AppError('validation_error', '两次输入的密码不一样，没有保存', 422);
+    return first;
+  });
 }
 
 function need(value: string | undefined, name: string): string {
@@ -381,6 +443,34 @@ async function main(argv: string[]): Promise<void> {
         out(JSON.stringify({ ...summary, lead_ids: summary.lead_ids.length, public_post_ids: summary.public_post_ids.length }, null, 2));
       });
       return;
+    }
+    case 'user': {
+      const sub = args[0];
+      if (sub === 'list') {
+        await withRuntime(config(), async (rt) => {
+          const users = listUsers(rt.ctx);
+          if (users.length === 0) out('还没有个人账号');
+          for (const u of users) out(`${u.name.padEnd(12)} ${u.disabled_at ? '已停用' : '正常'}  创建 ${u.created_at.slice(0, 10)}  最近登录 ${u.last_login_at?.slice(0, 16).replace('T', ' ') ?? '从未'}`);
+        });
+        return;
+      }
+      const name = need(args[1], '<姓名>');
+      if (sub === 'add' || sub === 'passwd') {
+        const password = await readSecret(true);
+        await withRuntime(config(), async (rt) => {
+          const user = sub === 'add' ? createUser(rt.ctx, name, password, CLI_ACTOR) : setUserPassword(rt.ctx, name, password, CLI_ACTOR);
+          out(sub === 'add' ? `已创建个人账号：${user.name}` : `已修改「${user.name}」的密码`);
+        });
+        return;
+      }
+      if (sub === 'disable' || sub === 'enable') {
+        await withRuntime(config(), async (rt) => {
+          const user = setUserDisabled(rt.ctx, name, sub === 'disable', CLI_ACTOR);
+          out(`「${user.name}」${sub === 'disable' ? '已停用' : '已恢复'}`);
+        });
+        return;
+      }
+      throw new AppError('validation_error', 'user 需要 add|passwd|disable|enable|list', 422);
     }
     case undefined:
     case 'help':

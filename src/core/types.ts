@@ -820,6 +820,23 @@ export interface VoiceVocabulary {
   emojis: string[];
 }
 
+/**
+ * A person who signs in to the console with their own password. The shared CONSOLE_PASSWORD still works for names
+ * that are not registered here; a registered name can only be signed in with its own password, so the audit actor
+ * `operator:<name>` cannot be borrowed by someone who knows the shared one.
+ */
+export interface ConsoleUser {
+  id: string;
+  /** display name, normalized like any operator name; unique */
+  name: string;
+  /** `scrypt$N$r$p$<salt b64url>$<hash b64url>`; the password itself is never stored */
+  password_hash: string;
+  disabled_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AccountVoiceProfile {
   id: string;
   account_id: string;
@@ -1441,6 +1458,7 @@ export interface EntityMap {
   engagement_replies: EngagementReply;
   xhs_notifications: XhsNotification;
   account_voice_profiles: AccountVoiceProfile;
+  console_users: ConsoleUser;
   operator_reports: OperatorReport;
 }
 

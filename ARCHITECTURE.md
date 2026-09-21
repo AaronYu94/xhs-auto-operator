@@ -18,7 +18,7 @@ must update this file and every caller.
 | Persistence | `node:sqlite` via `src/db/database.ts` (`Db`, typed `Table<T>`). Entities are snake_case, 1:1 with columns. JSON/boolean columns auto-converted (`TABLE_META`). |
 | Transactions | `ctx.db.tx(() => …)` wraps **synchronous** work only. Never `await` inside. Do provider/LLM calls first, then persist in a tx. |
 | Time | Always `ctx.clock.now()` / `ctx.clock.iso()` — never `new Date()` / `Date.now()` in business logic (tests use `ManualClock`). Dealer-local dates via `src/core/time.ts` (`localDateKey`, `startOfLocalDay`, tz = `dealer.settings.timezone`). |
-| IDs | `newId(prefix)` — prefixes: `grp dlr kn veh inv ofr acc per hlth plan post q run ppost pcmt lead sig lsc asg out conv msg appt cvn trn sup scfg goal wf step sch dec evt cap rb eng rpt`. |
+| IDs | `newId(prefix)` — prefixes: `grp dlr kn veh inv ofr acc per hlth plan post q run ppost pcmt lead sig lsc asg out conv msg appt cvn trn sup scfg goal wf step sch dec evt cap rb eng rpt usr`. |
 | Context | Every skill function takes `ctx: AppContext` first (`src/app/context.ts`): `db, clock, audit, xhs, llm, skills, log, runId`. No globals. |
 | Validation | `src/core/validate.ts` (`v.object`, …) for skill inputs, API bodies, fixture imports. |
 | Errors | `NotFoundError`, `ValidationError`, `PolicyError(code, msg)` from `src/core/errors.ts`. |

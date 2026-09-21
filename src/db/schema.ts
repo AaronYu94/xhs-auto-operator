@@ -95,6 +95,7 @@ export const TABLE_META: Record<TableName, { json: readonly string[]; bool: read
   engagement_replies: { json: ['fact_refs', 'guard_results'], bool: [] },
   xhs_notifications: { json: [], bool: ['comment_liked'] },
   account_voice_profiles: { json: ['sample_note_ids', 'metrics', 'rules', 'vocabulary', 'examples', 'avoid'], bool: [] },
+  console_users: { json: [], bool: [] },
   operator_reports: { json: ['report'], bool: [] },
 };
 
@@ -892,6 +893,18 @@ CREATE TABLE account_voice_profiles (
 CREATE INDEX idx_voice_dealer ON account_voice_profiles(dealer_id, analyzed_at DESC);
 `;
 
+const SCHEMA_V11 = /* sql */ `
+CREATE TABLE console_users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  disabled_at TEXT,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial_schema', sql: SCHEMA_V1 },
   { version: 2, name: 'signal_detection_fields', sql: SCHEMA_V2 },
@@ -903,4 +916,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 8, name: 'post_video', sql: SCHEMA_V8 },
   { version: 9, name: 'vehicle_brain', sql: SCHEMA_V9 },
   { version: 10, name: 'account_voice', sql: SCHEMA_V10 },
+  { version: 11, name: 'console_users', sql: SCHEMA_V11 },
 ];

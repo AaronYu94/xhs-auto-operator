@@ -33,6 +33,7 @@ import {
   signSession,
   verifySession,
 } from './auth.ts';
+import { checkLogin } from './users.ts';
 import { METHODS, Router, parseJsonBody, readRawBody, sendReply, toErrorReply, type Method, type Reply, type RequestContext } from './http.ts';
 import { registerPages } from './pages/index.ts';
 import { bareLayout, esc, markSvg } from './render.ts';
@@ -50,12 +51,12 @@ function loginPage(options: ServerOptions, next: string, error: string | null): 
     '登录',
     `<div class="login-card stack">
   <div class="login-brand">${markSvg()}驭客 Steer</div>
-  <p class="muted small">${options.auth_enabled ? '请输入您的姓名和控制台密码。姓名会记录在审核、发送和成交等操作的审计日志中。' : '开发模式未设置控制台密码：填写姓名即可，姓名用于审计记录。'}</p>
+  <p class="muted small">${options.auth_enabled ? '请输入您的姓名和密码。有个人账号的用自己的密码，没有的用门店的控制台密码。' : '开发模式未设置控制台密码：填写姓名即可，姓名用于审计记录。'}</p>
   ${error ? `<div class="banner banner-red">${esc(error)}</div>` : ''}
   <form class="stack" method="post" action="/login">
     <input type="hidden" name="next" value="${esc(next)}">
     <label>姓名<input type="text" name="name" required maxlength="40" autocomplete="username"></label>
-    ${options.auth_enabled ? '<label>控制台密码<input type="password" name="password" required autocomplete="current-password"></label>' : ''}
+    ${options.auth_enabled ? '<label>密码<input type="password" name="password" required autocomplete="current-password"></label>' : ''}
     <button class="btn btn-primary" type="submit">登录</button>
   </form>
 </div>`,
@@ -134,14 +135,15 @@ export function buildRouter(runtime: ServerRuntime, options: ServerOptions): Rou
       if (limiter.blocked(key, nowMs)) return { status: 429, html: loginPage(options, next, '尝试次数过多，请 10 分钟后再试') };
       const name = normalizeOperatorName(form.name);
       if (!name) return { status: 422, html: loginPage(options, next, '请填写姓名') };
-      if (options.auth_enabled && !safeEqual(form.password ?? '', options.console_password ?? '')) {
+      const check = checkLogin(ctx, name, form.password ?? '', { enabled: options.auth_enabled, password: options.console_password ?? null }, safeEqual);
+      if (!check.ok) {
         limiter.fail(key, nowMs);
-        ctx.log.warn('console.login_failed', { remote: key });
-        return { status: 401, html: loginPage(options, next, '密码不正确') };
+        ctx.log.warn('console.login_failed', { remote: key, reason: check.reason });
+        return { status: 401, html: loginPage(options, next, check.reason === 'disabled' ? '这个账号已停用，请联系管理员' : '姓名或密码不正确') };
       }
       limiter.reset(key);
-      const token = signSession(options.session_secret, { sub: name, exp: nowMs + SESSION_TTL_MS });
-      ctx.audit.event({ actor: `operator:${name}`, action: 'console.login', entity_type: 'console', entity_id: 'session', details: { auth_enabled: options.auth_enabled } });
+      const token = signSession(options.session_secret, { sub: check.name, exp: nowMs + SESSION_TTL_MS });
+      ctx.audit.event({ actor: `operator:${check.name}`, action: 'console.login', entity_type: 'console', entity_id: 'session', details: { auth_enabled: options.auth_enabled, personal_account: check.personal } });
       return { redirect: next, headers: { 'set-cookie': sessionCookie(token, { secure: options.cookie_secure }) } };
     },
     { public: true },

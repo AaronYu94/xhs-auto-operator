@@ -41,7 +41,7 @@ lists every problem at once. Secrets are redacted in logs (`redactConfig`).
 | `DATABASE_PATH` | **required** (not `:memory:`) | SQLite file, e.g. `/data/xhs-operator.db` |
 | `DATA_DIR` | | runtime data directory (default: DB directory) |
 | `LOG_LEVEL` | | `debug|info|warn|error|silent` (JSON lines on stderr) |
-| `CONSOLE_PASSWORD` | **required** (≥ 8 chars) | console login password; operators also enter their name (audit actor) |
+| `CONSOLE_PASSWORD` | **required** (≥ 8 chars) | shared console password; operators also enter their name (audit actor). A name with a personal account (`node src/cli.ts user add <姓名>`, password read from stdin or `CONSOLE_USER_PASSWORD`, stored as a scrypt hash) signs in only with its own password |
 | `SESSION_SECRET` | **required** (≥ 32 chars) | HMAC key for session cookies — `openssl rand -hex 32` |
 | `PUBLIC_BASE_URL` | recommended | external `https://` URL; enables `Secure` cookies |
 | `COOKIE_SECURE` | | force `Secure` cookies (default: on in production when `PUBLIC_BASE_URL` is https) |
@@ -173,6 +173,24 @@ cd desktop && npm ci && npm run dist:mac && npm run dist:win   # desktop/dist/*.
   address from nginx's `X-Forwarded-For`; only honoured for loopback peers).
 - Builds are unsigned: macOS asks to confirm on first open (right-click → 打开), Windows SmartScreen shows “更多信息 →
   仍要运行”. Sign with an Apple Developer ID / Windows code-signing certificate before wide distribution.
+
+## 3c. A domain name (Let's Encrypt)
+
+```bash
+scripts/deploy.sh domain <ssh-host> <domain> <email>   # asks before accepting the Let's Encrypt agreement
+```
+
+- Preconditions, checked by `deploy/server/domain.sh` rather than assumed: an **A record** for `<domain>` and
+  `www.<domain>` pointing at the server, and — on a mainland-China server — an **ICP filing (备案)** for the domain.
+  Without the filing the cloud provider intercepts HTTP on the domain, the ACME challenge never reaches nginx, and the
+  script stops with that explanation. Filing needs the domain's real-name verification (域名实名认证) first.
+- It adds a second nginx site (`xhs-operator-domain`): `:80` answers the ACME challenge and redirects to https,
+  `www` redirects to the bare domain, and the bare domain proxies to the app. The IP-address site with its pinned
+  self-signed certificate stays the default server, so installed desktop apps keep working.
+- Certificates renew through certbot's own timer; a deploy hook reloads nginx. `PUBLIC_BASE_URL` becomes
+  `https://<domain>`.
+- To move the desktop app to the domain, set `desktop/server.json` `url` to `https://<domain>`: a publicly trusted
+  certificate needs no pinned fingerprint.
 
 ## 4. Docker Compose
 
